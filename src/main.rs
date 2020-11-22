@@ -27,7 +27,7 @@ async fn main_fut() -> Result<()> {
         port_smtp, port_http
     );
 
-    smtp::serve_smtp(port_smtp, my_name.clone()).await?;
+    smtp::serve_smtp(port_smtp, my_name.clone(), use_starttls).await?;
 
     Ok(())
 }

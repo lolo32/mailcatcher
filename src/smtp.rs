@@ -16,7 +16,7 @@ const MSG_500_LENGTH_TOO_LONG: &[u8] = b"500 Line too long.\r\n";
 const MSG_502_NOT_IMPLEMENTED: &[u8] = b"502 Command not implemented\r\n";
 const MSG_503_BAD_SEQUENCE: &[u8] = b"503 Bad sequence of commands\r\n";
 
-pub async fn serve_smtp(port: u16, server_name: String) -> Result<()>
+pub async fn serve_smtp(port: u16, server_name: String, use_starttls: bool) -> Result<()>
 where
 {
     let addr = format!("localhost:{}", port)
@@ -44,7 +44,7 @@ where
         info!("Accepting new connection from: {}", stream.peer_addr()?);
         spawn_task_and_swallow_log_errors(
             format!("TCP transmission {}", conn),
-            smtp_handle(stream, conn, server_name.clone()),
+            smtp_handle(stream, conn, server_name.clone(), use_starttls),
         );
     }
     Ok(())
@@ -78,6 +78,7 @@ where
 enum Command {
     Hello(String),
     Ehllo(String),
+    StartTls,
     Mail(String),
     Recipient(String),
     Data(String),
@@ -93,6 +94,7 @@ enum Command {
 struct Smtp {
     server_name: String,
     write_stream: TcpStream,
+    use_starttls: bool,
     remote_name: Option<String>,
     addr_from: Option<String>,
     addr_to: Vec<String>,
@@ -101,10 +103,11 @@ struct Smtp {
 }
 
 impl Smtp {
-    pub fn new(write_stream: &TcpStream) -> Self {
+    pub fn new(write_stream: &TcpStream, use_starttls: bool) -> Self {
         Self {
             server_name: "".to_string(),
             write_stream: write_stream.clone(),
+            use_starttls,
             remote_name: None,
             addr_from: None,
             addr_to: vec![],
@@ -133,6 +136,7 @@ impl Smtp {
                 "DATA" => Command::DataStart,
                 "RSET" => Command::Reset,
                 "QUIT" => Command::Quit,
+                "STARTTLS" if self.use_starttls => Command::StartTls,
                 line if line.len() > 5 && &line[..5] == "HELO " => {
                     Command::Hello(line[5..].trim().to_string())
                 }
@@ -191,6 +195,8 @@ impl Smtp {
             }
             Command::Noop | Command::Quit | Command::Reset => true,
             Command::DataStart | Command::DataEnd | Command::Error(_) => true,
+            Command::StartTls if self.use_starttls => true,
+            Command::StartTls => false,
         }
     }
 
@@ -206,8 +212,17 @@ impl Smtp {
             }
             Command::Ehllo(remote_name) | Command::Hello(remote_name) => {
                 self.remote_name = Some(remote_name.clone());
-                self.write(format!("250 {}\r\n", self.server_name).as_bytes())
-                    .await?;
+                let greeting = if self.use_starttls {
+                    format!("250-{}\r\n250 STARTTLS\r\n", self.server_name)
+                } else {
+                    format!("250 {}\r\n", self.server_name)
+                };
+                self.write(greeting.as_bytes()).await?;
+                true
+            }
+            Command::StartTls => {
+                // TODO: need to implement it
+                unimplemented!();
                 true
             }
             Command::Reset => {
@@ -283,8 +298,13 @@ impl Smtp {
     }
 }
 
-async fn smtp_handle(stream: TcpStream, conn: ConnectionInfo, server_name: String) -> Result<()> {
-    let mut smtp = Smtp::new(&stream);
+async fn smtp_handle(
+    stream: TcpStream,
+    conn: ConnectionInfo,
+    server_name: String,
+    use_starttls: bool,
+) -> Result<()> {
+    let mut smtp = Smtp::new(&stream, use_starttls);
 
     smtp.set_server_name(server_name).await?;
 
