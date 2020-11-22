@@ -1,0 +1,56 @@
+use std::fmt;
+use std::time::{Duration, Instant};
+
+use async_std::net::SocketAddr;
+
+#[derive(Debug)]
+pub struct ConnectionInfo {
+    pub local_addr: Option<SocketAddr>,
+    pub peer_addr: Option<SocketAddr>,
+    pub connected_at: Instant,
+}
+
+impl ConnectionInfo {
+    pub fn new(local_addr: Option<SocketAddr>, peer_addr: Option<SocketAddr>) -> Self {
+        Self {
+            local_addr,
+            peer_addr,
+            connected_at: Instant::now(),
+        }
+    }
+
+    pub fn get_duration(&self) -> Duration {
+        Instant::now() - self.connected_at
+    }
+}
+
+impl Default for ConnectionInfo {
+    fn default() -> Self {
+        ConnectionInfo::new(None, None)
+    }
+}
+
+impl fmt::Display for ConnectionInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let peer = if let Some(addr) = self.peer_addr {
+            addr.to_string()
+        } else {
+            "Unknown".to_string()
+        };
+        let local = if let Some(addr) = self.local_addr {
+            addr.to_string()
+        } else {
+            "Unknown".to_string()
+        };
+
+        f.write_str(
+            format!(
+                "Connection from peer {} to local {} established {:?} ago.",
+                peer,
+                local,
+                self.get_duration()
+            )
+            .as_str(),
+        )
+    }
+}
