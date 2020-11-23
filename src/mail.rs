@@ -1,5 +1,6 @@
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
 
 #[derive(Hash, Eq, PartialEq)]
 enum Type {
@@ -12,6 +13,7 @@ enum Type {
 pub struct Mail {
     from: String,
     to: Vec<String>,
+    subject: String,
     date: DateTime<Utc>,
     headers: Vec<String>,
     data: HashMap<Type, (Option<String>, String)>,
@@ -22,6 +24,7 @@ impl Mail {
         let mut this = Self {
             from,
             to,
+            subject: "(No subject)".to_string(),
             date: Utc::now(),
             headers: Vec::default(),
             data: HashMap::default(),
@@ -55,15 +58,16 @@ impl Mail {
         this.data.insert(Type::Text, (None, data_temp));
 
         // Extract Date
-        for header in &this.headers {
-            if header.len() > 6 && &header[..6] == "Date: " {
-                let date_str = &header[6..];
-                let local_date = DateTime::parse_from_rfc2822(date_str).ok();
-                if let Some(local_date) = local_date {
-                    this.date = local_date.with_timezone(&Utc);
-                    break;
-                }
+        if let Some(date_str) = this.get_header_content("Date") {
+            let local_date = DateTime::parse_from_rfc2822(date_str.as_str()).ok();
+            if let Some(local_date) = local_date {
+                this.date = local_date.with_timezone(&Utc);
             }
+        }
+
+        // Extract Subject
+        if let Some(subject) = this.get_header_content("Subject") {
+            this.subject = subject;
         }
 
         this
@@ -76,12 +80,16 @@ impl Mail {
         self.date
     }
 
+    pub fn get_subject(&self) -> &String {
+        &self.subject
+    }
+
     /**
      * Retrieve the content in text format
      */
-    pub fn get_text(&self) -> String {
+    pub fn get_text(&self) -> Option<&String> {
         if let Some((_, text)) = self.data.get(&Type::Text) {
-            text.clone()
+            Some(text)
         } else {
             self.get_html()
         }
@@ -90,19 +98,33 @@ impl Mail {
     /**
      * Retrieve the content in html format
      */
-    pub fn get_html(&self) -> String {
+    pub fn get_html(&self) -> Option<&String> {
         if let Some((_, html)) = self.data.get(&Type::Html) {
-            html.clone()
+            Some(html)
         } else {
-            String::new()
+            None
         }
+    }
+
+    pub fn get_header_content(&self, key: &str) -> Option<String> {
+        let key = format!("{}: ", key);
+        let key = key.as_str();
+        let key_len = key.len();
+
+        for header in &self.headers {
+            if header.len() > key_len && &header[..key_len] == key {
+                return Some(header[key_len..].to_string());
+            }
+        }
+        None
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::TimeZone;
+
+    use super::*;
 
     const DATA_SIMPLE: &str = r"Date: Sun, 22 Nov 2020 01:58:23 +0100
 To: to@mail.com
@@ -152,6 +174,9 @@ This is a test mailing
 
         let text = mail.get_text();
 
-        assert_eq!(text, "This is a test mailing\r\n\r\n".to_string());
+        assert!(text.is_some());
+        assert_eq!(text.unwrap(), &"This is a test mailing\r\n\r\n".to_string());
+
+        assert!(mail.get_html().is_none());
     }
 }
