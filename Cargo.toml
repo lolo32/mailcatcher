@@ -8,9 +8,18 @@ edition = "2018"
 
 [dependencies]
 async-std = "1.7"
+base64 = "0.13.0"
 chrono = "0.4"
+encoding = "0.2"
 env_logger = "0.8"
 #futures = "0.3"
+lazy_static = "1.4"
 log = "0.4"
 #rustls = "0.18"
 #sled = "0.34"
+
+[dependencies.regex]
+version = "1"
+default-features = false
+# feature std needed by regex
+features = ["std"]

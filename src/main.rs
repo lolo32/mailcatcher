@@ -1,8 +1,11 @@
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate lazy_static;
 
 use async_std::task;
 
+mod encoding;
 mod mail;
 mod smtp;
 mod utils;
