@@ -251,9 +251,9 @@ impl Smtp {
                 true
             }
             Command::Data(line) => {
-                if line.len() > 1001 {
+                if line.len() > 1000 {
                     error!(
-                        "Data line length ({}) cannot exceed 1000 characters.",
+                        "Data line length ({}) cannot exceed 998 characters.",
                         line.len()
                     );
                     self.write(MSG_500_LENGTH_TOO_LONG).await?
