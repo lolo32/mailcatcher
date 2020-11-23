@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 
+use crate::encoding::decode_string;
+
 #[derive(Hash, Eq, PartialEq)]
 enum Type {
     Text,
@@ -58,7 +60,7 @@ impl Mail {
         this.data.insert(Type::Text, (None, data_temp));
 
         // Extract Date
-        if let Some(date_str) = this.get_header_content("Date") {
+        if let Some(date_str) = this.get_header_content("Date", false) {
             let local_date = DateTime::parse_from_rfc2822(date_str.as_str()).ok();
             if let Some(local_date) = local_date {
                 this.date = local_date.with_timezone(&Utc);
@@ -66,7 +68,7 @@ impl Mail {
         }
 
         // Extract Subject
-        if let Some(subject) = this.get_header_content("Subject") {
+        if let Some(subject) = this.get_header_content("Subject", false) {
             this.subject = subject;
         }
 
@@ -106,14 +108,19 @@ impl Mail {
         }
     }
 
-    pub fn get_header_content(&self, key: &str) -> Option<String> {
+    pub fn get_header_content(&self, key: &str, raw: bool) -> Option<String> {
         let key = format!("{}: ", key);
         let key = key.as_str();
         let key_len = key.len();
 
         for header in &self.headers {
             if header.len() > key_len && &header[..key_len] == key {
-                return Some(header[key_len..].to_string());
+                let content = &header[key_len..];
+                return Some(if raw {
+                    content.to_string()
+                } else {
+                    decode_string(content).to_string()
+                });
             }
         }
         None
