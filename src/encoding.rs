@@ -5,6 +5,8 @@ use regex::{Captures, Regex};
 use std::collections::HashMap;
 
 lazy_static! {
+    static ref RE_REMOVE_SPACE: Regex =
+        Regex::new(r"(?P<first>=\?[^?]+\?.\?.+?\?=) +(?P<second>=\?[^?]+\?.\?.+?\?=)").unwrap();
     static ref RE_GENERAL: Regex =
         Regex::new(r"(=\?(?P<charset>[^?]+)\?(?P<encoding>.)\?(?P<encoded_text>.+?)\?=)").unwrap();
     static ref RE_QUOTE: regex::bytes::Regex =
@@ -18,8 +20,18 @@ lazy_static! {
     };
 }
 
-pub fn decode_string(string: &str) -> Cow<str> {
-    RE_GENERAL.replace_all(string, rfc2047_decode)
+pub fn decode_string(string: &str) -> String {
+    let mut string = string.to_string();
+    while RE_REMOVE_SPACE.is_match(string.as_str()) {
+        string = RE_REMOVE_SPACE.replace_all(string.as_str(), t).to_string();
+    }
+    RE_GENERAL
+        .replace_all(string.as_str(), rfc2047_decode)
+        .to_string()
+}
+
+fn t(caps: &Captures) -> String {
+    format!("{}{}", &caps["first"], &caps["second"])
 }
 
 fn rfc2047_decode(caps: &Captures) -> String {
@@ -79,7 +91,7 @@ mod tests {
 
         assert_eq!(
             a,
-            "Subject: If you can read this yo u understand the example."
+            "Subject: If you can read this you understand the example."
         );
     }
 
