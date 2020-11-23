@@ -7,8 +7,7 @@ use async_std::{
     task,
 };
 
-use crate::utils::ConnectionInfo;
-use crate::Result;
+use crate::{utils::ConnectionInfo, Result};
 
 const MSG_250_OK: &[u8] = b"250 OK\r\n";
 const MSG_354_NEXT_DATA: &[u8] = b"354 Start mail input; end with <CRLF>.<CRLF>\r\n";
