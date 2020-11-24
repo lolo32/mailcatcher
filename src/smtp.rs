@@ -1,13 +1,10 @@
-use core::future::Future;
-
 use async_std::{
     io::BufReader,
     net::{TcpListener, TcpStream, ToSocketAddrs},
     prelude::*,
-    task,
 };
 
-use crate::{utils::ConnectionInfo, Result};
+use crate::{utils::*, Result};
 
 const MSG_250_OK: &[u8] = b"250 OK\r\n";
 const MSG_354_NEXT_DATA: &[u8] = b"354 Start mail input; end with <CRLF>.<CRLF>\r\n";
@@ -15,9 +12,7 @@ const MSG_500_LENGTH_TOO_LONG: &[u8] = b"500 Line too long.\r\n";
 const MSG_502_NOT_IMPLEMENTED: &[u8] = b"502 Command not implemented\r\n";
 const MSG_503_BAD_SEQUENCE: &[u8] = b"503 Bad sequence of commands\r\n";
 
-pub async fn serve_smtp(port: u16, server_name: String, use_starttls: bool) -> Result<()>
-where
-{
+pub async fn serve_smtp(port: u16, server_name: String, use_starttls: bool) -> Result<()> {
     let addr = format!("localhost:{}", port)
         .to_socket_addrs()
         .await?
@@ -47,30 +42,6 @@ where
         );
     }
     Ok(())
-}
-
-fn spawn_task_and_swallow_log_errors<F>(task_name: String, fut: F) -> task::JoinHandle<()>
-where
-    F: Future<Output = Result<()>> + Send + 'static,
-{
-    task::spawn(async move { log_errors(task_name, fut).await.unwrap_or_default() })
-}
-
-async fn log_errors<F, T, E>(task_name: String, fut: F) -> Option<T>
-where
-    F: Future<Output = std::result::Result<T, E>>,
-    E: std::fmt::Display,
-{
-    match fut.await {
-        Ok(r) => {
-            info!("{} completes successfully.", task_name);
-            Some(r)
-        }
-        Err(e) => {
-            error!("Error in {}: {}", task_name, e);
-            None
-        }
-    }
 }
 
 #[derive(Debug)]
