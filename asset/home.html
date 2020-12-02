@@ -81,9 +81,10 @@
 
         const UpdateDate = (state, date) => ({...state, date})
 
-        const since = ts => {
+        const since = (ts) => {
             const delta = Date.now() / 1000 - ts
-            const s = (step, text) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 0}).format(delta / step)} ${text} ago`
+            const s = (step, text) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 0}).format(
+                delta / step)} ${text} ago`
 
             if (delta < 60) {
                 return "a few seconds"
@@ -99,7 +100,7 @@
                 return s(2419200, "months")
             }
         }
-        const size = len => {
+        const size = (len) => {
             const s = (len, unit) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 1}).format(len)} ${unit}`
 
             if (len < 1024) {
@@ -140,7 +141,7 @@
             ],
             view: ({todos, value, mails, mail, raw, id, sse}) =>
                 h("main", {}, [
-                    h("button", { onclick: ToggleSse}, text(`sse: ${sse}`)),
+                    h("button", {onclick: ToggleSse}, text(`sse: ${sse}`)),
                     h("button", {onclick: GetMailList}, text("Mails")),
                     h("ul", {}, mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail))),
                     (mail && mail.data) && h("article", {}, [
