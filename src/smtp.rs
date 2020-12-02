@@ -1,10 +1,11 @@
+use async_channel::Sender;
 use async_std::{
     io::BufReader,
     net::{TcpListener, TcpStream, ToSocketAddrs},
     prelude::*,
 };
 
-use crate::{utils::*, Result};
+use crate::{mail::Mail, utils::*, Result};
 
 const MSG_250_OK: &[u8] = b"250 OK\r\n";
 const MSG_354_NEXT_DATA: &[u8] = b"354 Start mail input; end with <CRLF>.<CRLF>\r\n";
@@ -12,7 +13,12 @@ const MSG_500_LENGTH_TOO_LONG: &[u8] = b"500 Line too long.\r\n";
 const MSG_502_NOT_IMPLEMENTED: &[u8] = b"502 Command not implemented\r\n";
 const MSG_503_BAD_SEQUENCE: &[u8] = b"503 Bad sequence of commands\r\n";
 
-pub async fn serve_smtp(port: u16, server_name: String, use_starttls: bool) -> Result<()> {
+pub async fn serve_smtp(
+    port: u16,
+    server_name: String,
+    mails: Sender<Mail>,
+    use_starttls: bool,
+) -> Result<()> {
     let addr = format!("localhost:{}", port)
         .to_socket_addrs()
         .await?
@@ -25,7 +31,7 @@ pub async fn serve_smtp(port: u16, server_name: String, use_starttls: bool) -> R
         .map_err(|e| format!("Unable to bind {}: {}", addr, e))?;
 
     let mut incoming = listener.incoming();
-    info!("Listening on {:?}", listener.local_addr());
+    info!("SMTP listening on {:?}", listener.local_addr());
 
     while let Some(stream) = incoming.next().await {
         let conn = if let Ok(ref stream) = stream {
@@ -38,7 +44,13 @@ pub async fn serve_smtp(port: u16, server_name: String, use_starttls: bool) -> R
         info!("Accepting new connection from: {}", stream.peer_addr()?);
         spawn_task_and_swallow_log_errors(
             format!("TCP transmission {}", conn),
-            smtp_handle(stream, conn, server_name.clone(), use_starttls),
+            smtp_handle(
+                stream,
+                conn,
+                server_name.clone(),
+                use_starttls,
+                mails.clone(),
+            ),
         );
     }
     Ok(())
@@ -102,25 +114,25 @@ impl Smtp {
     pub fn process_line(&self, line: String) -> Command {
         // debug!("texte: {}", line);
         if !self.receive_data {
-            match line.to_uppercase().as_str() {
-                "DATA" => Command::DataStart,
-                "RSET" => Command::Reset,
-                "QUIT" => Command::Quit,
-                "STARTTLS" if self.use_starttls => Command::StartTls,
-                line if line.len() > 5 && &line[..5] == "HELO " => {
+            match line.to_lowercase().as_str() {
+                "data" => Command::DataStart,
+                "rset" => Command::Reset,
+                "quit" => Command::Quit,
+                "starttls" if self.use_starttls => Command::StartTls,
+                line if line.len() > 5 && &line[..5] == "helo " => {
                     Command::Hello(line[5..].trim().to_string())
                 }
-                line if line.len() > 5 && &line[..5] == "EHLO " => {
+                line if line.len() > 5 && &line[..5] == "ehlo " => {
                     Command::Ehllo(line[5..].trim().to_string())
                 }
-                line if line.len() > 10 && &line[..10] == "MAIL FROM:" => {
+                line if line.len() > 10 && &line[..10] == "mail from:" => {
                     Command::Mail(line[10..].trim().to_string())
                 }
-                line if line.len() > 8 && &line[..8] == "RCPT TO:" => {
+                line if line.len() > 8 && &line[..8] == "rcpt to:" => {
                     Command::Recipient(line[8..].trim().to_string())
                 }
-                line if (line.len() == 4 && line == "NOOP")
-                    || (line.len() > 4 && &line[..5] == "NOOP ") =>
+                line if (line.len() == 4 && line == "noop")
+                    || (line.len() > 4 && &line[..5] == "noop ") =>
                 {
                     Command::Noop
                 }
@@ -170,15 +182,15 @@ impl Smtp {
         }
     }
 
-    pub async fn process_command(&mut self, command: Command) -> Result<bool> {
+    pub async fn process_command(&mut self, command: Command) -> Result<(bool, Option<Mail>)> {
         Ok(match command {
             action if !self.is_valid(&action) => {
                 self.write(MSG_503_BAD_SEQUENCE).await?;
-                true
+                (true, None)
             }
             Command::Noop => {
                 self.write(MSG_250_OK).await?;
-                true
+                (true, None)
             }
             Command::Ehllo(remote_name) | Command::Hello(remote_name) => {
                 self.remote_name = Some(remote_name.clone());
@@ -188,17 +200,17 @@ impl Smtp {
                     format!("250 {}\r\n", self.server_name)
                 };
                 self.write(greeting.as_bytes()).await?;
-                true
+                (true, None)
             }
             Command::StartTls => {
                 // TODO: need to implement it
                 unimplemented!();
-                true
+                (true, None)
             }
             Command::Reset => {
                 self.reset();
                 self.write(MSG_250_OK).await?;
-                true
+                (true, None)
             }
             Command::Mail(from) => {
                 if from.len() > 64 {
@@ -208,17 +220,17 @@ impl Smtp {
                     self.addr_from = Some(from);
                     self.write(MSG_250_OK).await?
                 }
-                true
+                (true, None)
             }
             Command::Recipient(to) => {
                 self.addr_to.push(to);
                 self.write(MSG_250_OK).await?;
-                true
+                (true, None)
             }
             Command::DataStart => {
                 self.receive_data = true;
                 self.write(MSG_354_NEXT_DATA).await?;
-                true
+                (true, None)
             }
             Command::Data(line) => {
                 if line.len() > 1000 {
@@ -229,13 +241,14 @@ impl Smtp {
                     self.write(MSG_500_LENGTH_TOO_LONG).await?
                 }
                 self.push_data(line);
-                true
+                (true, None)
             }
             Command::DataEnd => {
                 // TODO:
                 warn!("Need to implement storage!!!");
                 //smtp.save();
                 trace!("{}", self.data);
+                let mail = Mail::new(self.addr_from.as_ref().unwrap(), &self.addr_to, &self.data);
 
                 self.receive_data = false;
                 self.addr_from = None;
@@ -243,7 +256,7 @@ impl Smtp {
                 self.data.clear();
 
                 self.write(MSG_250_OK).await?;
-                true
+                (true, Some(mail))
             }
             Command::Quit => {
                 self.write(
@@ -254,15 +267,13 @@ impl Smtp {
                     .as_bytes(),
                 )
                 .await?;
-
-                false
+                (false, None)
             }
             Command::Error(err) => {
                 error!("Unsupported command: \"{}\"", err);
 
                 self.write(MSG_502_NOT_IMPLEMENTED).await?;
-
-                true
+                (true, None)
             }
         })
     }
@@ -273,6 +284,7 @@ async fn smtp_handle(
     conn: ConnectionInfo,
     server_name: String,
     use_starttls: bool,
+    mails: Sender<Mail>,
 ) -> Result<()> {
     let mut smtp = Smtp::new(&stream, use_starttls);
 
@@ -284,8 +296,11 @@ async fn smtp_handle(
     // Begin command loop
     while let Some(line) = lines.next().await {
         let action = smtp.process_line(line?);
-        debug!("{:?}", action);
-        let dont_quit = smtp.process_command(action).await?;
+        trace!("{:?}", action);
+        let (dont_quit, mail) = smtp.process_command(action).await?;
+        if let Some(mail) = mail {
+            mails.send(mail).await?;
+        };
         if !dont_quit {
             break;
         }

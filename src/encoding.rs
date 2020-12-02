@@ -1,19 +1,17 @@
-use std::borrow::Cow;
-
 use encoding::{label::encoding_from_whatwg_label, DecoderTrap};
 use regex::{Captures, Regex};
-use std::collections::HashMap;
 
 lazy_static! {
     static ref RE_REMOVE_SPACE: Regex =
-        Regex::new(r"(?P<first>=\?[^?]+\?.\?.+?\?=) +(?P<second>=\?[^?]+\?.\?.+?\?=)").unwrap();
+        Regex::new(r"(?P<first>=\?[^?]+\?.\?.+?\?=)[ \t\r\n]+(?P<second>=\?[^?]+\?.\?.+?\?=)")
+            .unwrap();
     static ref RE_GENERAL: Regex =
         Regex::new(r"(=\?(?P<charset>[^?]+)\?(?P<encoding>.)\?(?P<encoded_text>.+?)\?=)").unwrap();
     static ref RE_QUOTE: regex::bytes::Regex =
         regex::bytes::Regex::new("\x3D([\x30-\x39\x41-\x46]{2})").unwrap();
-    static ref HEX_BYTE: HashMap<String, u8> = {
-        let mut m = HashMap::new();
-        for i in 0..0xFF {
+    static ref HEX_BYTE: fnv::FnvHashMap<String, u8> = {
+        let mut m = fnv::FnvHashMap::default();
+        for i in 0x00..0xFF {
             m.insert(format!("{:X}", i), i);
         }
         m
@@ -22,40 +20,33 @@ lazy_static! {
 
 pub fn decode_string(string: &str) -> String {
     let mut string = string.to_string();
-    while RE_REMOVE_SPACE.is_match(string.as_str()) {
-        string = RE_REMOVE_SPACE.replace_all(string.as_str(), t).to_string();
+    while RE_REMOVE_SPACE.is_match(&string) {
+        string = RE_REMOVE_SPACE
+            .replace_all(&string, |caps: &Captures| {
+                format!("{}{}", &caps["first"], &caps["second"])
+            })
+            .to_string();
     }
-    RE_GENERAL
-        .replace_all(string.as_str(), rfc2047_decode)
-        .to_string()
-}
-
-fn t(caps: &Captures) -> String {
-    format!("{}{}", &caps["first"], &caps["second"])
+    RE_GENERAL.replace_all(&string, rfc2047_decode).to_string()
 }
 
 fn rfc2047_decode(caps: &Captures) -> String {
     if let Some(dec) = encoding_from_whatwg_label(&caps["charset"].to_lowercase()) {
-        let text = rfc2047_decode_encoding(&caps["encoding"], &caps["encoded_text"]);
-        return dec.decode(&text, DecoderTrap::Strict).unwrap_or_default();
-    }
-
-    format!(
-        "=?{}?{}?{}?=",
-        &caps["charset"], &caps["encoding"], &caps["encoded_text"]
-    )
-}
-
-fn rfc2047_decode_encoding(encoding_: &str, text: &str) -> Vec<u8> {
-    match encoding_.to_lowercase().as_str() {
-        "b" => {
-            base64::decode(text).unwrap_or_else(|_| b"/!\\ Invalid Base64 encoding /!\\".to_vec())
-        }
-        "q" => {
-            let text = text.replace("_", "\u{20}");
-            RE_QUOTE.replace_all(text.as_bytes(), replace_byte).to_vec()
-        }
-        _ => panic!("Illegal encoding"),
+        let text = match caps["encoding"].to_lowercase().as_str() {
+            "b" => base64::decode(&caps["encoded_text"])
+                .unwrap_or_else(|_| b"/!\\ Invalid Base64 encoding /!\\".to_vec()),
+            "q" => {
+                let text = caps["encoded_text"].replace("_", "\u{20}");
+                RE_QUOTE.replace_all(text.as_bytes(), replace_byte).to_vec()
+            }
+            _ => panic!("Illegal encoding"),
+        };
+        dec.decode(&text, DecoderTrap::Strict).unwrap_or_default()
+    } else {
+        format!(
+            "=?{}?{}?{}?=",
+            &caps["charset"], &caps["encoding"], &caps["encoded_text"]
+        )
     }
 }
 

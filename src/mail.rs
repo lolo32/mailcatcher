@@ -1,40 +1,45 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
+use ulid::Ulid;
 
 use crate::encoding::decode_string;
 
-#[derive(Hash, Eq, PartialEq)]
-enum Type {
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+pub enum Type {
+    Raw,
     Text,
     Html,
-    Image,
-    Pdf,
+    Image(String),
+    Other(String),
 }
 
+#[derive(Debug, Clone)]
 pub struct Mail {
+    id: Ulid,
     from: String,
     to: Vec<String>,
     subject: String,
     date: DateTime<Utc>,
     headers: Vec<String>,
-    data: HashMap<Type, (Option<String>, String)>,
+    data: fnv::FnvHashMap<Type, String>,
 }
 
 impl Mail {
-    pub fn new(from: String, to: Vec<String>, data: String) -> Self {
+    pub fn new(from: &str, to: &[String], data: &str) -> Self {
         let mut this = Self {
-            from,
-            to,
+            id: Ulid::new(),
+            from: from.to_lowercase(),
+            to: to.iter().map(|addr| addr.to_lowercase()).collect(),
             subject: "(No subject)".to_string(),
             date: Utc::now(),
             headers: Vec::default(),
-            data: HashMap::default(),
+            data: fnv::FnvHashMap::default(),
         };
 
         let mut headers = true;
 
         let mut data_temp = String::new();
+
+        this.data.insert(Type::Raw, data.to_string());
 
         for line in data.lines() {
             if headers {
@@ -57,7 +62,7 @@ impl Mail {
                 data_temp.push_str(line);
             }
         }
-        this.data.insert(Type::Text, (None, data_temp));
+        this.data.insert(Type::Text, data_temp);
 
         // Extract Date
         if let Some(date_str) = this.get_header_content("Date", false) {
@@ -75,6 +80,17 @@ impl Mail {
         this
     }
 
+    pub fn get_id(&self) -> Ulid {
+        self.id
+    }
+
+    pub fn from(&self) -> &String {
+        &self.from
+    }
+    pub fn to(&self) -> &Vec<String> {
+        &self.to
+    }
+
     /**
      * Retrieve mail date, either from the Date header or if not present from the reception time
      */
@@ -90,7 +106,7 @@ impl Mail {
      * Retrieve the content in text format
      */
     pub fn get_text(&self) -> Option<&String> {
-        if let Some((_, text)) = self.data.get(&Type::Text) {
+        if let Some(text) = self.data.get(&Type::Text) {
             Some(text)
         } else {
             self.get_html()
@@ -101,7 +117,7 @@ impl Mail {
      * Retrieve the content in html format
      */
     pub fn get_html(&self) -> Option<&String> {
-        if let Some((_, html)) = self.data.get(&Type::Html) {
+        if let Some(html) = self.data.get(&Type::Html) {
             Some(html)
         } else {
             None
@@ -124,6 +140,18 @@ impl Mail {
             }
         }
         None
+    }
+
+    pub fn get_headers(&self) -> &Vec<String> {
+        self.headers.as_ref()
+    }
+
+    pub fn get_size(&self) -> usize {
+        self.data.get(&Type::Raw).unwrap().len()
+    }
+
+    pub fn get_data(&self, type_: &Type) -> Option<&String> {
+        self.data.get(type_)
     }
 }
 
@@ -148,9 +176,9 @@ This is a test mailing
     #[test]
     fn split_headers_body() {
         let mail = Mail::new(
-            "from@example.com".to_string(),
-            vec!["to@example.com".to_string()],
-            DATA_SIMPLE.to_string(),
+            "from@example.com",
+            &["to@example.com".to_string()],
+            DATA_SIMPLE,
         );
 
         assert_eq!(mail.headers.len(), 6);
@@ -160,13 +188,13 @@ This is a test mailing
         assert!(mail.data.contains_key(&Type::Text));
         assert_eq!(
             mail.data.get(&Type::Text),
-            Some(&(None, "This is a test mailing\r\n\r\n".to_string()))
+            Some(&"This is a test mailing\r\n\r\n".to_string())
         );
     }
 
     #[test]
     fn test_getting_datetime() {
-        let mail = Mail::new(String::default(), Vec::default(), DATA_SIMPLE.to_string());
+        let mail = Mail::new("", &[], DATA_SIMPLE);
 
         let date = mail.get_date();
         assert_eq!(date.timezone(), Utc);
@@ -177,7 +205,7 @@ This is a test mailing
 
     #[test]
     fn get_text() {
-        let mail = Mail::new(String::default(), Vec::default(), DATA_SIMPLE.to_string());
+        let mail = Mail::new("", &[], DATA_SIMPLE);
 
         let text = mail.get_text();
 

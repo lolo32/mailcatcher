@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MailCatcher!</title>
+    <style>
+        .selected {
+            background-color: darkblue;
+            color: white;
+        }
+
+        .hand {
+            cursor: pointer;
+        }
+
+        .mail:hover {
+            background-color: darkolivegreen;
+            color: white;
+        }
+    </style>
+    <script type="module">
+        import {app, every, h, request, text} from "./hyperapp.js"
+
+        const MailListProcess = (state, mails) => {
+            let exists = mails.find(mail => mail.id === state.id)
+            return {...state, mails, fetching: false, mail: exists ? state.mail : {}, id: exists ? state.id : ""}
+        }
+        const FetchMails = () => request({
+            url: "/mails",
+            expect: "json",
+            action: MailListProcess,
+        })
+        const GetMailList = (state) => [{...state, fetching: true}, FetchMails()]
+
+        const MailDetail = (state, mail) => ({...state, fetching: false, mail})
+        const GetMailDetail = (state, event) => {
+            const source = target =>
+                (target.dataset && target.dataset.id) ? target.dataset.id : source(target.parentNode)
+
+            const id = source(event.target)
+            return [
+                {...state, fetching: true, id},
+                request({
+                    url: `/mail/${id}`,
+                    expect: "json",
+                    action: MailDetail,
+                }),
+            ]
+        }
+
+        const removeDuplicateFromArray = (array, key) => {
+            let check = new Set()
+            return array.filter(obj => !check.has(obj[key]) && check.add(obj[key]))
+        }
+
+        const SSEStream = (dispatch) => {
+            console.log("SSEStream")
+
+            const pushMail = (state, mail) => {
+                console.log("pushMail", state, mail)
+
+                let mails = [...state.mails]
+                mails.push(mail)
+                return {...state, mails: removeDuplicateFromArray(mails, "id")}
+            }
+
+            let evt = new EventSource("/sse")
+            evt.onmessage = function (ev) {
+                console.log("onmessage", ev)
+
+                let mail = JSON.parse(ev.data)
+                dispatch(pushMail, mail)
+            }
+
+            return () => evt.close()
+        }
+        const initSse = (props) => [SSEStream, props]
+
+        const SwitchRaw = (state) => ({...state, raw: !state.raw})
+        const ToggleSse = (state) => ({...state, sse: !state.sse})
+
+        const UpdateDate = (state, date) => ({...state, date})
+
+        const since = ts => {
+            const delta = Date.now() / 1000 - ts
+            const s = (step, text) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 0}).format(delta / step)} ${text} ago`
+
+            if (delta < 60) {
+                return "a few seconds"
+            } else if (delta < 3600) {
+                return s(60, "minutes")
+            } else if (delta < 86400) {
+                return s(3600, "hours")
+            } else if (delta < 604800) {
+                return s(86400, "days")
+            } else if (delta < 2419200) {
+                return s(604800, "weeks")
+            } else {
+                return s(2419200, "months")
+            }
+        }
+        const size = len => {
+            const s = (len, unit) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 1}).format(len)} ${unit}`
+
+            if (len < 1024) {
+                return s(len, "b")
+            } else if (len < 1048576) {
+                return s(len / 1024, "kb")
+            } else if (len < 1073741824) {
+                return s(len / 1048576, "Mb")
+            } else {
+                return s(len / 1073741824, "Gb")
+            }
+        }
+        const display_mail = (id, mail) => h("li", {},
+            h("article", {
+                onclick: GetMailDetail,
+                "data-id": mail.id,
+                class: [
+                    mail.id === id ? "selected" : "",
+                    "hand",
+                    "mail",
+                ],
+            }, [
+                h("div", {class: "from"}, text(mail.from)),
+                h("div", {class: "subject"}, text(mail.subject)),
+                h("div", {class: "date"}, text(since(mail.date))),
+                h("div", {class: "size"}, text(size(mail.size))),
+            ]),
+        )
+
+        app({
+            init: [
+                {todos: [], value: "", mails: [], fetching: false, mail: {}, raw: false, id: "", sse: true},
+                FetchMails(),
+            ],
+            subscriptions: (state) => [
+                every(1000, UpdateDate),
+                state.sse && initSse({action: GetMailList}),
+            ],
+            view: ({todos, value, mails, mail, raw, id, sse}) =>
+                h("main", {}, [
+                    h("button", { onclick: ToggleSse}, text(`sse: ${sse}`)),
+                    h("button", {onclick: GetMailList}, text("Mails")),
+                    h("ul", {}, mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail))),
+                    (mail && mail.data) && h("article", {}, [
+                        h("header", {style: {backgroundColor: "gainsboro"}}, [
+                            h("button", {onclick: SwitchRaw}, text(raw ? "decoded" : "raw")),
+                            h("ul", {}, mail[raw ? "raw" : "headers"].map(
+                                header => h("li", {}, h("pre", {}, text(header))),
+                            )),
+                        ]),
+                        h("main", {}, [
+                            h("pre", {}, text(mail.data)),
+                        ]),
+                    ]),
+                ]),
+            node: document.getElementById("app"),
+        })
+    </script>
+</head>
+<body>
+<main id="app"></main>
+</body>
+</html>

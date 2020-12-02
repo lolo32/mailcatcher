@@ -3,23 +3,41 @@ name = "mailcatcher"
 version = "0.1.0"
 authors = ["Lolo_32 <lol.b@free.fr>"]
 edition = "2018"
+license = "Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = "1.7"
+async-channel = "1.5.1"
 base64 = "0.13.0"
-chrono = "0.4"
-encoding = "0.2"
-env_logger = "0.8"
-#futures = "0.3"
-lazy_static = "1.4"
-log = "0.4"
-#rustls = "0.18"
+chrono = "0.4.19"
+encoding = "0.2.33"
+env_logger = "0.8.2"
+fnv = "1.0.7"
+futures-channel = "0.3.8"
+futures-lite = "1.11.2"
+lazy_static = "1.4.0"
+log = "0.4.11"
+serde = "1.0.117"
 #sled = "0.34"
+ulid = "0.4.1"
+
+[dependencies.broadcaster]
+version = "1.0.0"
+#default-features = false
+#features = ["parking-lot"]
+
+[dependencies.async-std]
+version = "1.7.0"
+#features = ["unstable"]
 
 [dependencies.regex]
-version = "1"
+version = "1.4.2"
 default-features = false
 # feature std needed by regex
 features = ["std"]
+
+[dependencies.tide]
+version = "0.15.0"
+default-features = false
+features = ["h1-server", "logger"]

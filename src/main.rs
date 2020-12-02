@@ -1,11 +1,13 @@
 #[macro_use]
-extern crate log;
-#[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate log;
 
 use async_std::task;
+use futures_lite::FutureExt;
 
 mod encoding;
+mod http;
 mod mail;
 mod smtp;
 mod utils;
@@ -30,7 +32,11 @@ async fn main_fut() -> Result<()> {
         port_smtp, port_http
     );
 
-    smtp::serve_smtp(port_smtp, my_name.clone(), use_starttls).await?;
+    let (tx_mails, rx_mails) = async_channel::unbounded();
+
+    let s = smtp::serve_smtp(port_smtp, my_name.clone(), tx_mails, use_starttls);
+    let h = http::serve_http(port_http, my_name.clone(), rx_mails);
+    let _a = s.race(h).await?;
 
     Ok(())
 }
