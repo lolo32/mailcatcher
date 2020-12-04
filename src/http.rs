@@ -5,15 +5,17 @@ use async_std::{
     task,
 };
 use broadcaster::BroadcastChannel;
+use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use tide::{prelude::*, sse, Body, Request, Response, StatusCode};
+use tide::{
+    http::{headers, mime},
+    prelude::*,
+    sse, Body, Request, Response, StatusCode,
+};
 use ulid::Ulid;
 
 use crate::encoding::decode_string;
-use crate::{
-    mail::{Mail, Type},
-    Result,
-};
+use crate::mail::{Mail, Type};
 
 #[derive(Clone)]
 struct State {
@@ -28,7 +30,7 @@ pub async fn serve_http(
     port: u16,
     server_name: String,
     mut rx_mails: Receiver<Mail>,
-) -> Result<()> {
+) -> crate::Result<()> {
     let chan_sse = BroadcastChannel::new();
 
     // Process mails that are received by the SMTP side
@@ -75,7 +77,7 @@ pub async fn serve_http(
     // Get mail details
     app.at("/mail/:id").get(|req: Request<State>| async move {
         if let Some(mail) = get_mail(&req).await? {
-            let obj = json! ({
+            let obj = json!({
                 "headers": mail
                     .get_headers()
                     .iter()

@@ -5,7 +5,7 @@ use async_std::{
     prelude::*,
 };
 
-use crate::{mail::Mail, utils::*, Result};
+use crate::{mail::Mail, utils::*};
 
 const MSG_250_OK: &[u8] = b"250 OK\r\n";
 const MSG_354_NEXT_DATA: &[u8] = b"354 Start mail input; end with <CRLF>.<CRLF>\r\n";
@@ -18,7 +18,7 @@ pub async fn serve_smtp(
     server_name: String,
     mails: Sender<Mail>,
     use_starttls: bool,
-) -> Result<()> {
+) -> crate::Result<()> {
     let addr = format!("localhost:{}", port)
         .to_socket_addrs()
         .await?
@@ -98,12 +98,12 @@ impl Smtp {
         }
     }
 
-    async fn write(&mut self, messsage: &[u8]) -> Result<()> {
+    async fn write(&mut self, messsage: &[u8]) -> crate::Result<()> {
         self.write_stream.write_all(messsage).await?;
         Ok(())
     }
 
-    pub async fn set_server_name(&mut self, server_name: String) -> Result<()> {
+    pub async fn set_server_name(&mut self, server_name: String) -> crate::Result<()> {
         // Write greeting server string
         self.server_name = server_name;
         self.write(format!("220 {} ESMTP\r\n", self.server_name).as_bytes())
@@ -182,7 +182,10 @@ impl Smtp {
         }
     }
 
-    pub async fn process_command(&mut self, command: Command) -> Result<(bool, Option<Mail>)> {
+    pub async fn process_command(
+        &mut self,
+        command: Command,
+    ) -> crate::Result<(bool, Option<Mail>)> {
         Ok(match command {
             action if !self.is_valid(&action) => {
                 self.write(MSG_503_BAD_SEQUENCE).await?;
@@ -285,7 +288,7 @@ async fn smtp_handle(
     server_name: String,
     use_starttls: bool,
     mails: Sender<Mail>,
-) -> Result<()> {
+) -> crate::Result<()> {
     let mut smtp = Smtp::new(&stream, use_starttls);
 
     smtp.set_server_name(server_name).await?;

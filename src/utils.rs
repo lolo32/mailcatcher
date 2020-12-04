@@ -4,18 +4,16 @@ use std::time::{Duration, Instant};
 
 use async_std::{net::SocketAddr, task};
 
-use crate::Result;
-
 pub fn spawn_task_and_swallow_log_errors<F>(task_name: String, fut: F) -> task::JoinHandle<()>
 where
-    F: Future<Output = Result<()>> + Send + 'static,
+    F: Future<Output = crate::Result<()>> + Send + 'static,
 {
     task::spawn(async move { log_errors(task_name, fut).await.unwrap_or_default() })
 }
 
 pub async fn log_errors<F, T, E>(task_name: String, fut: F) -> Option<T>
 where
-    F: Future<Output = std::result::Result<T, E>>,
+    F: Future<Output = Result<T, E>>,
     E: std::fmt::Display,
 {
     match fut.await {

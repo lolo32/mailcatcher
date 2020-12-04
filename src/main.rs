@@ -14,12 +14,12 @@ mod utils;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-fn main() -> Result<()> {
+fn main() -> crate::Result<()> {
     env_logger::init();
     task::block_on(main_fut())
 }
 
-async fn main_fut() -> Result<()> {
+async fn main_fut() -> crate::Result<()> {
     // TODO: Parse arguments
     let (port_smtp, port_http) = (1025_u16, 1080_u16);
     // TODO: Parse arguments

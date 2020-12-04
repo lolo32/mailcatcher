@@ -8,8 +8,8 @@ pub enum Type {
     Raw,
     Text,
     Html,
-    Image(String),
-    Other(String),
+    Image(String, String),
+    Other(String, String),
 }
 
 #[derive(Debug, Clone)]
