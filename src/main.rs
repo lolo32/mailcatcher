@@ -35,7 +35,7 @@ async fn main_fut() -> crate::Result<()> {
     let (tx_mails, rx_mails) = async_channel::unbounded();
 
     let s = smtp::serve_smtp(port_smtp, my_name.clone(), tx_mails, use_starttls);
-    let h = http::serve_http(port_http, my_name.clone(), rx_mails);
+    let h = http::serve_http(port_http, rx_mails);
     s.race(h).await?;
 
     Ok(())

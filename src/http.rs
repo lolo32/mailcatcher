@@ -27,11 +27,7 @@ lazy_static! {
     static ref MAILS: Arc<Mutex<fnv::FnvHashMap<Ulid, Mail>>> = Default::default();
 }
 
-pub async fn serve_http(
-    port: u16,
-    server_name: String,
-    mut rx_mails: Receiver<Mail>,
-) -> crate::Result<()> {
+pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Result<()> {
     let chan_sse = BroadcastChannel::new();
 
     // Process mails that are received by the SMTP side
