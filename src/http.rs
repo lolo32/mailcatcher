@@ -1,8 +1,8 @@
 use async_channel::Receiver;
-use async_std::net::ToSocketAddrs;
 use async_std::{
+    net::ToSocketAddrs,
     prelude::*,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
     task,
 };
 use broadcaster::BroadcastChannel;
@@ -24,7 +24,7 @@ struct State {
 }
 
 lazy_static! {
-    static ref MAILS: Arc<Mutex<fnv::FnvHashMap<Ulid, Mail>>> = Default::default();
+    static ref MAILS: Arc<RwLock<fnv::FnvHashMap<Ulid, Mail>>> = Default::default();
 }
 
 pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Result<()> {
@@ -41,7 +41,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
                 Ok(_) => trace!(">>> New mail notification sent to channel"),
                 Err(e) => trace!(">>> Err new mail notification to channel: {:?}", e),
             }
-            mails.lock().await.insert(mail.get_id(), mail);
+            mails.write().await.insert(mail.get_id(), mail);
         }
     });
 
@@ -80,9 +80,10 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     });
     // Get all mail list
     app.at("/mails").get(|_req| async move {
-        // let m = mails(Ulid::nil(), None);
         let mails = Arc::clone(&MAILS);
-        let resp: Vec<_> = { mails.lock().await.values().map(MailShort::new).collect() };
+        let resp: Vec<_> = { mails.read().await.values() }
+            .map(MailShort::new)
+            .collect();
 
         Body::from_json(&resp)
     });
@@ -138,16 +139,14 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     // Remove
     app.at("/remove/all").get(|_req| async move {
         let mails = Arc::clone(&MAILS);
-        {
-            mails.lock().await.clear();
-        }
+        mails.write().await.clear();
         Ok("OK")
     });
     app.at("/remove/:id").get(|req: Request<State>| async move {
         let id = req.param("id")?;
         if let Ok(id) = Ulid::from_string(id) {
             let mails = Arc::clone(&MAILS);
-            let mail = { mails.lock().await.remove(&id) };
+            let mail = { mails.write().await.remove(&id) };
             if mail.is_some() {
                 info!("mail removed {:?}", mail);
                 return Ok("OK".into());
@@ -206,7 +205,7 @@ async fn get_mail(req: &Request<State>) -> tide::Result<Option<Mail>> {
     let id = req.param("id")?;
     if let Ok(id) = Ulid::from_string(id) {
         let mails = Arc::clone(&MAILS);
-        let mail = { mails.lock().await.get(&id).cloned() };
+        let mail = mails.read().await.get(&id).cloned();
         trace!("mail with id {} found {:?}", id, mail);
         return Ok(mail);
     }
