@@ -1,12 +1,13 @@
 use async_channel::Receiver;
+use async_std::net::ToSocketAddrs;
 use async_std::{
     prelude::*,
     sync::{Arc, Mutex},
     task,
 };
 use broadcaster::BroadcastChannel;
-use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
-use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use chrono::NaiveDate;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use tide::{
     http::{headers, mime},
     prelude::*,
@@ -175,7 +176,18 @@ pub async fn serve_http(
             Ok(())
         }));
 
-    app.listen(format!("localhost:{}", port)).await?;
+    let mut listener = app
+        .bind(
+            format!("localhost:{}", port)
+                .to_socket_addrs()
+                .await?
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+    for info in listener.info().iter() {
+        info!("HTTP listening on {}", info);
+    }
+    listener.accept().await?;
     Ok(())
 }
 

@@ -1,9 +1,10 @@
 use async_channel::Sender;
 use async_std::{
     io::BufReader,
-    net::{TcpListener, TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     prelude::*,
 };
+use futures::stream::FuturesUnordered;
 
 use crate::{mail::Mail, utils::*};
 
@@ -19,19 +20,35 @@ pub async fn serve_smtp(
     mails: Sender<Mail>,
     use_starttls: bool,
 ) -> crate::Result<()> {
-    let addr = format!("localhost:{}", port)
+    let addr: Vec<_> = format!("localhost:{}", port)
         .to_socket_addrs()
         .await?
-        .next()
-        .unwrap();
-    trace!("Binding on {}", addr);
+        .collect();
 
+    addr.iter()
+        .map(|a| handle(a, server_name.clone(), mails.clone(), use_starttls))
+        .collect::<FuturesUnordered<_>>()
+        .skip_while(|r| r.is_ok())
+        .take(1)
+        .fold(Ok(()), |acc, cur| match cur {
+            Err(e) => Err(e),
+            Ok(()) => acc,
+        })
+        .await
+}
+
+async fn handle(
+    addr: &SocketAddr,
+    server_name: String,
+    mails: Sender<Mail>,
+    use_starttls: bool,
+) -> crate::Result<()> {
     let listener = TcpListener::bind(addr)
         .await
-        .map_err(|e| format!("Unable to bind {}: {}", addr, e))?;
+        .map_err(|e| format!("Unable to bind {:?}: {}", addr, e))?;
 
     let mut incoming = listener.incoming();
-    info!("SMTP listening on {:?}", listener.local_addr());
+    info!("SMTP listening on {:?}", listener.local_addr()?);
 
     while let Some(stream) = incoming.next().await {
         let conn = if let Ok(ref stream) = stream {
