@@ -20,7 +20,7 @@
         }
     </style>
     <script type="module">
-        import {app, every, h, request, text} from "./hyperapp.js"
+        import {app, h, request, text} from "./hyperapp.js"
 
         const MailListProcess = (state, mails) => {
             let exists = mails.find(mail => mail.id === state.id)
@@ -88,15 +88,15 @@
                 delta / step)} ${text} ago`
 
             if (delta < 60) {
-                return "a few seconds"
+                return "a few sec"
             } else if (delta < 3600) {
-                return s(60, "minutes")
+                return s(60, "min")
             } else if (delta < 86400) {
-                return s(3600, "hours")
+                return s(3600, "h")
             } else if (delta < 604800) {
-                return s(86400, "days")
+                return s(86400, "d")
             } else if (delta < 2419200) {
-                return s(604800, "weeks")
+                return s(604800, "w")
             } else {
                 return s(2419200, "months")
             }
@@ -114,21 +114,20 @@
                 return s(len / 1073741824, "Gb")
             }
         }
-        const display_mail = (id, mail) => h("li", {},
-            h("article", {
+        const display_mail = (id, mail) => h("tr", {
                 onclick: GetMailDetail,
                 "data-id": mail.id,
                 class: [
-                    mail.id === id ? "selected" : "",
+                    mail.id === id && "selected",
                     "hand",
                     "mail",
                 ],
             }, [
-                h("div", {class: "from"}, text(mail.from)),
-                h("div", {class: "subject"}, text(mail.subject)),
-                h("div", {class: "date"}, text(since(mail.date))),
-                h("div", {class: "size"}, text(size(mail.size))),
-            ]),
+                h("td", {}, text(mail.from)),
+                h("td", {}, text(mail.subject)),
+                h("td", {}, text(since(mail.date))),
+                h("td", {}, text(size(mail.size))),
+            ],
         )
 
         app({
@@ -137,15 +136,29 @@
                 FetchMails(),
             ],
             subscriptions: (state) => [
-                every(1000, UpdateDate),
+                //every(1000, UpdateDate),
                 state.sse && initSse({action: GetMailList}),
             ],
             view: ({todos, value, mails, mail, raw, id, sse}) =>
                 h("main", {}, [
-                    h("button", {onclick: ToggleSse}, text(`sse: ${sse}`)),
-                    h("button", {onclick: GetMailList}, text("Mails")),
-                    h("ul", {}, mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail))),
-                    (mail && mail.data) && h("article", {}, [
+                    h("div", {class: "w3-half"}, [
+                        h("button", {onclick: ToggleSse}, text(`sse: ${sse}`)),
+                        h("button", {onclick: GetMailList}, text("Mails")),
+                        h("table", {class: ["w3-table", "w3-hoverable", "w3-small"]}, [
+                            h("thead", {},
+                                h("tr", {}, [
+                                    h("th", {}, text("From")),
+                                    h("th", {}, text("Subject")),
+                                    h("th", {}, text("Date")),
+                                    h("th", {}, text("Size")),
+                                ]),
+                            ),
+                            h("tbody", {},
+                                mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail)),
+                            ),
+                        ]),
+                    ]),
+                    (mail && mail.data) && h("article", {class: "w3-half"}, [
                         h("header", {style: {backgroundColor: "gainsboro"}}, [
                             h("button", {onclick: SwitchRaw}, text(raw ? "decoded" : "raw")),
                             h("ul", {}, mail[raw ? "raw" : "headers"].map(

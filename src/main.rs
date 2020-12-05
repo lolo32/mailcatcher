@@ -4,7 +4,7 @@ extern crate lazy_static;
 extern crate log;
 
 use async_std::task;
-use futures_lite::FutureExt;
+use futures::try_join;
 
 mod encoding;
 mod http;
@@ -36,7 +36,7 @@ async fn main_fut() -> crate::Result<()> {
 
     let s = smtp::serve_smtp(port_smtp, my_name.clone(), tx_mails, use_starttls);
     let h = http::serve_http(port_http, rx_mails);
-    s.race(h).await?;
+    let _ = try_join![s, h];
 
     Ok(())
 }
