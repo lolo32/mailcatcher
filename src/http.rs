@@ -67,6 +67,21 @@ pub async fn serve_http(
             Ok(Response::new(StatusCode::NotFound))
         }
     });
+    app.at("/w3.css").get(|_req| async {
+        let w3 = include_str!("../asset/w3.css");
+        // Tue, 01 Dec 2020 00:00:00 GMT
+        let date = NaiveDate::from_ymd(2020, 12, 1)
+            .and_hms(0, 0, 0)
+            .format("%a, %d %b %Y %T GMT")
+            .to_string();
+        let res = Response::builder(StatusCode::Ok)
+            .content_type(mime::CSS)
+            .header(headers::LAST_MODIFIED, date)
+            .header(headers::CONTENT_LENGTH, w3.len().to_string())
+            .body(w3)
+            .build();
+        Ok(res)
+    });
     // Get all mail list
     app.at("/mails").get(|_req| async move {
         // let m = mails(Ulid::nil(), None);

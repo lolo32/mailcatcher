@@ -36,7 +36,7 @@ async fn main_fut() -> crate::Result<()> {
 
     let s = smtp::serve_smtp(port_smtp, my_name.clone(), tx_mails, use_starttls);
     let h = http::serve_http(port_http, my_name.clone(), rx_mails);
-    let _a = s.race(h).await?;
+    s.race(h).await?;
 
     Ok(())
 }
