@@ -48,8 +48,9 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     // Noop consumer to empty the ctream
     let mut sse_noop = chan_sse.clone();
     task::spawn(async move {
-        while let Some(msg) = sse_noop.next().await {
+        loop {
             // Do nothing, it's just to empty the stream
+            sse_noop.next().await;
         }
     });
 
