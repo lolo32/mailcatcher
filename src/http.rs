@@ -45,6 +45,14 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
         }
     });
 
+    // Noop consumer to empty the ctream
+    let mut sse_noop = chan_sse.clone();
+    task::spawn(async move {
+        while let Some(msg) = sse_noop.next().await {
+            // Do nothing, it's just to empty the stream
+        }
+    });
+
     let state = State { chan_sse };
     let mut app = tide::with_state(state);
     app.at("/").get(|_req| async {
