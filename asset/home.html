@@ -186,7 +186,10 @@
                                     text("update")),
                             ]),
                             h("ul", {class: ["w3-small", "w3-padding-16", "w3-ul", "w3-border-bottom"]},
-                                mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail)),
+                                mails.length ? mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail))
+                                             : h("li",
+                                    {class: ["w3-row", "w3-padding-small", "w3-center", "w3-medium"]},
+                                    text("No messages")),
                             ),
                         ]),
                     (mail && mail.data) &&
@@ -211,7 +214,10 @@
                         rawMail &&
                         h("div", {class: ["w3-modal", "w3-responsive"], onclick: stopPropagation(CloseSourceMail)},
                             h("div", {class: ["w3-modal-content", "w3-card-4"]}, [
-                                h("span", {class: ["w3-button", "w3-display-topright", "w3-theme-action"], onclick: CloseSourceMail},
+                                h("span", {
+                                        class: ["w3-button", "w3-display-topright", "w3-theme-action"],
+                                        onclick: CloseSourceMail,
+                                    },
                                     text("×")),
                                 h("pre", {class: ["w3-theme-l4", "w3-responsive", "w3-padding-small"]},
                                     text(rawMail.headers)),
