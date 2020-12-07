@@ -5,26 +5,57 @@
     <title>MailCatcher!</title>
     <link href="w3.css" rel="stylesheet">
     <style>
-        .selected {
-            background-color: darkblue;
-            color: white;
-        }
-
-        .hand {
-            cursor: pointer;
-        }
-
-        .mail:hover {
-            background-color: darkolivegreen;
-            color: white;
-        }
+        .mail {cursor: pointer}
+        .to:before {content: "To: "}
+        .subject:before {content: "Subj: "}
+        .since, .size {font-style: italic}
     </style>
     <script type="module">
-        import {app, h, request, text} from "./hyperapp.js"
+        import {app, every, h, request, stopPropagation, text} from "./hyperapp.js"
+
+        const since = (ts) => {
+            const delta = Date.now() / 1000 - ts
+            const s = (step, text) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 0}).format(
+                delta / step)}${text} ago`
+
+            if (delta < 60) {
+                return "a few sec"
+            } else if (delta < 3600) {
+                return s(60, " min")
+            } else if (delta < 86400) {
+                return s(3600, "h")
+            } else if (delta < 604800) {
+                return s(86400, "d")
+            } else if (delta < 2419200) {
+                return s(604800, "w")
+            } else {
+                return s(2419200, " months")
+            }
+        }
+        const size = (len) => {
+            const s = (len, unit) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 1}).format(len)} ${unit}`
+
+            if (len < 1024) {
+                return s(len, "b")
+            } else if (len < 1048576) {
+                return s(len / 1024, "kb")
+            } else if (len < 1073741824) {
+                return s(len / 1048576, "Mb")
+            } else {
+                return s(len / 1073741824, "Gb")
+            }
+        }
+        const updateSince = (mail) => ({...mail, since: since(mail.date)})
 
         const MailListProcess = (state, mails) => {
             let exists = mails.find(mail => mail.id === state.id)
-            return {...state, mails, fetching: false, mail: exists ? state.mail : {}, id: exists ? state.id : ""}
+            return {
+                ...state,
+                mails: mails.map(updateSince),
+                fetching: false,
+                mail: exists ? state.mail : {},
+                id: exists ? state.id : "",
+            }
         }
         const FetchMails = () => request({
             url: "/mails",
@@ -32,6 +63,32 @@
             action: MailListProcess,
         })
         const GetMailList = (state) => [{...state, fetching: true}, FetchMails()]
+
+        const MailRemoved = (state) => ({...state, fetching: false})
+        const RemoveMail = (state, event) => {
+            const id = event.target.dataset.id
+            return [
+                {...state, fetching: true, mail: {}},
+                request({
+                    url: `/remove/${id}`,
+                    action: MailRemoved,
+                }),
+            ]
+        }
+
+        const MailRaw = (state, rawMail) => ({...state, fetching: false, rawMail})
+        const SourceMail = (state, event) => {
+            const id = event.target.dataset.id
+            return [
+                {...state, fetching: true, rawMail: false},
+                request({
+                    url: `/mail/${id}/source`,
+                    expect: "json",
+                    action: MailRaw,
+                }),
+            ]
+        }
+        const CloseSourceMail = (state) => ({...state, rawMail: false})
 
         const MailDetail = (state, mail) => ({...state, fetching: false, mail})
         const GetMailDetail = (state, event) => {
@@ -55,23 +112,17 @@
         }
 
         const SSEStream = (dispatch) => {
-            console.log("SSEStream")
-
             const pushMail = (state, mail) => {
-                console.log("pushMail", state, mail)
-
                 let mails = [...state.mails]
-                mails.push(mail)
+                mails.push(updateSince(mail))
                 return {...state, mails: removeDuplicateFromArray(mails, "id")}
             }
 
-            let evt = new EventSource("/sse")
-            evt.onmessage = function (ev) {
-                console.log("onmessage", ev)
+            const delMail = (state, mailId) => ({...state, mails: state.mails.filter(mail => mail.id !== mailId)})
 
-                let mail = JSON.parse(ev.data)
-                dispatch(pushMail, mail)
-            }
+            let evt = new EventSource("/sse")
+            evt.addEventListener("newMail", (ev) => dispatch(pushMail, JSON.parse(ev.data)))
+            evt.addEventListener("delMail", (ev) => dispatch(delMail, ev.data))
 
             return () => evt.close()
         }
@@ -80,101 +131,100 @@
         const SwitchRaw = (state) => ({...state, raw: !state.raw})
         const ToggleSse = (state) => ({...state, sse: !state.sse})
 
-        const UpdateDate = (state, date) => ({...state, date})
+        const UpdateDate = (state) => ({...state, mails: state.mails.map(updateSince)})
 
-        const since = (ts) => {
-            const delta = Date.now() / 1000 - ts
-            const s = (step, text) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 0}).format(
-                delta / step)} ${text} ago`
-
-            if (delta < 60) {
-                return "a few sec"
-            } else if (delta < 3600) {
-                return s(60, "min")
-            } else if (delta < 86400) {
-                return s(3600, "h")
-            } else if (delta < 604800) {
-                return s(86400, "d")
-            } else if (delta < 2419200) {
-                return s(604800, "w")
-            } else {
-                return s(2419200, "months")
-            }
-        }
-        const size = (len) => {
-            const s = (len, unit) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 1}).format(len)} ${unit}`
-
-            if (len < 1024) {
-                return s(len, "b")
-            } else if (len < 1048576) {
-                return s(len / 1024, "kb")
-            } else if (len < 1073741824) {
-                return s(len / 1048576, "Mb")
-            } else {
-                return s(len / 1073741824, "Gb")
-            }
-        }
-        const display_mail = (id, mail) => h("tr", {
+        const display_mail = (id, mail) => h("li", {
                 onclick: GetMailDetail,
                 "data-id": mail.id,
                 class: [
-                    mail.id === id && "selected",
-                    "hand",
+                    mail.id === id && "w3-theme-dark",
                     "mail",
+                    "w3-row",
+                    "w3-hover-theme",
+                    "w3-padding-small",
                 ],
             }, [
-                h("td", {}, text(mail.from)),
-                h("td", {}, text(mail.subject)),
-                h("td", {}, text(since(mail.date))),
-                h("td", {}, text(size(mail.size))),
+                h("div", {class: "to"}, text(mail.to.join(", "))),
+                h("div", {class: "subject"}, text(mail.subject)),
+                h("div", {class: "w3-row"}, [
+                    h("div", {class: ["since", "w3-twothird"]}, text(mail.since)),
+                    h("div", {class: ["size", "w3-third", "w3-right-align"]}, text(size(mail.size))),
+                ]),
             ],
         )
 
         app({
             init: [
-                {todos: [], value: "", mails: [], fetching: false, mail: {}, raw: false, id: "", sse: true},
+                {
+                    todos: [],
+                    value: "",
+                    mails: [],
+                    fetching: false,
+                    mail: {},
+                    raw: false,
+                    id: "",
+                    sse: true,
+                    rawMail: false,
+                },
                 FetchMails(),
             ],
             subscriptions: (state) => [
-                //every(1000, UpdateDate),
+                every(1000, UpdateDate),
                 state.sse && initSse({action: GetMailList}),
             ],
-            view: ({todos, value, mails, mail, raw, id, sse}) =>
+            view: ({fetching, mails, mail, raw, id, sse, rawMail}) =>
                 h("main", {}, [
-                    h("div", {class: "w3-half"}, [
-                        h("button", {onclick: ToggleSse}, text(`sse: ${sse}`)),
-                        h("button", {onclick: GetMailList}, text("Mails")),
-                        h("table", {class: ["w3-table", "w3-hoverable", "w3-small"]}, [
-                            h("thead", {},
-                                h("tr", {}, [
-                                    h("th", {}, text("From")),
-                                    h("th", {}, text("Subject")),
-                                    h("th", {}, text("Date")),
-                                    h("th", {}, text("Size")),
-                                ]),
-                            ),
-                            h("tbody", {},
+                    fetching &&
+                    h("div", {class: ["w3-display-topright", "w3-tag", "w3-theme-dark"]}, text("Fetching...")),
+                    h("div",
+                        {class: ["w3-sidebar", "w3-bar-block", "w3-card-4", "w3-theme-l5"], style: {width: "25%"}}, [
+                            h("div", {}, [
+                                h("button", {class: ["w3-theme-action", "w3-btn"], onclick: ToggleSse},
+                                    text(`sse:${sse}`)),
+                                text(" "),
+                                h("button", {class: ["w3-theme-action", "w3-btn"], onclick: GetMailList},
+                                    text("update")),
+                            ]),
+                            h("ul", {class: ["w3-small", "w3-padding-16", "w3-ul", "w3-border-bottom"]},
                                 mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail)),
                             ),
                         ]),
-                    ]),
-                    (mail && mail.data) && h("article", {class: "w3-half"}, [
-                        h("header", {style: {backgroundColor: "gainsboro"}}, [
-                            h("button", {onclick: SwitchRaw}, text(raw ? "decoded" : "raw")),
-                            h("ul", {}, mail[raw ? "raw" : "headers"].map(
-                                header => h("li", {}, h("pre", {}, text(header))),
-                            )),
+                    (mail && mail.data) &&
+                    h("article", {style: {marginLeft: "25%"}}, [
+                        h("header", {class: ["w3-panel", "w3-card-4", "w3-theme-l4"], style: {marginTop: 0}}, [
+                            h("button", {class: ["w3-theme-action", "w3-btn"], onclick: SwitchRaw},
+                                text(raw ? "decoded" : "raw")),
+                            text(" "),
+                            h("button", {class: ["w3-theme-action", "w3-btn"], onclick: RemoveMail, "data-id": id},
+                                text("remove")),
+                            text(" "),
+                            h("button", {class: ["w3-theme-action", "w3-btn"], onclick: SourceMail, "data-id": id},
+                                text("source")),
+                            h("div", {class: ["w3-responsive"], style: {padding: "8px 12px"}},
+                                mail[raw ? "raw" : "headers"].map(
+                                    header => h("pre", {style: {lineHeight: 0}}, text(header)),
+                                )),
                         ]),
                         h("main", {}, [
-                            h("pre", {}, text(mail.data)),
+                            h("pre", {class: ["w3-responsive", "w3-panel"]}, text(mail.data)),
                         ]),
+                        rawMail &&
+                        h("div", {class: ["w3-modal", "w3-responsive"], onclick: stopPropagation(CloseSourceMail)},
+                            h("div", {class: ["w3-modal-content", "w3-card-4"]}, [
+                                h("span", {class: ["w3-button", "w3-display-topright", "w3-theme-action"], onclick: CloseSourceMail},
+                                    text("×")),
+                                h("pre", {class: ["w3-theme-l4", "w3-responsive", "w3-padding-small"]},
+                                    text(rawMail.headers)),
+                                h("pre", {class: ["w3-responsive", "w3-padding-small"]}, text(rawMail.content)),
+                            ]),
+                        ),
                     ]),
                 ]),
             node: document.getElementById("app"),
         })
     </script>
 </head>
-<body>
+<body class="w3-theme-l5">
 <main id="app"></main>
 </body>
 </html>

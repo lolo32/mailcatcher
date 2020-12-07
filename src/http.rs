@@ -8,6 +8,7 @@ use async_std::{
 use broadcaster::BroadcastChannel;
 use chrono::NaiveDate;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use regex::Regex;
 use tide::{
     http::{headers, mime},
     prelude::*,
@@ -20,11 +21,17 @@ use crate::mail::{Mail, Type};
 
 #[derive(Clone)]
 struct State {
-    chan_sse: BroadcastChannel<Mail, UnboundedSender<Mail>, UnboundedReceiver<Mail>>,
+    chan_sse: BroadcastChannel<MailEvt, UnboundedSender<MailEvt>, UnboundedReceiver<MailEvt>>,
 }
 
 lazy_static! {
     static ref MAILS: Arc<RwLock<fnv::FnvHashMap<Ulid, Mail>>> = Default::default();
+}
+
+#[derive(Clone, Debug)]
+enum MailEvt {
+    NewMail(Mail),
+    DelMail(Ulid),
 }
 
 pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Result<()> {
@@ -37,7 +44,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
         while let Some(mail) = rx_mails.next().await {
             info!(">>> Received new mail: {:?}", mail);
             // Notify javascript side by SSE
-            match chan_sse_tx.send(&mail).await {
+            match chan_sse_tx.send(&MailEvt::NewMail(mail.clone())).await {
                 Ok(_) => trace!(">>> New mail notification sent to channel"),
                 Err(e) => trace!(">>> Err new mail notification to channel: {:?}", e),
             }
@@ -137,9 +144,17 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     app.at("/mail/:id/source")
         .get(|req: Request<State>| async move {
             if let Some(mail) = get_mail(&req).await? {
-                match mail.get_data(&Type::Raw) {
-                    Some(raw) => return Ok(Body::from_string(raw.clone()).into()),
-                    None => {}
+                if let Some(raw) = mail.get_data(&Type::Raw) {
+                    let reg = Regex::new(
+                        "(?P<headers>(?:[^\r\n]+\r?\n)*[^\r\n]+)\r?\n\r?\n(?P<content>.*)",
+                    )?;
+                    let caps = reg.captures(raw).unwrap();
+                    let (headers, content) = (caps.name("headers"), caps.name("content"));
+                    return Ok(Body::from_json(&json!({
+                        "headers": headers.unwrap().as_str(),
+                        "content": content.unwrap().as_str(),
+                    }))?
+                    .into());
                 }
             }
             Ok(Response::new(StatusCode::NotFound))
@@ -155,9 +170,10 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
         let id = req.param("id")?;
         if let Ok(id) = Ulid::from_string(id) {
             let mails = Arc::clone(&MAILS);
-            let mail = { mails.write().await.remove(&id) };
+            let mail = mails.write().await.remove(&id);
             if mail.is_some() {
                 info!("mail removed {:?}", mail);
+                req.state().chan_sse.send(&MailEvt::DelMail(id)).await?;
                 return Ok("OK".into());
             }
         }
@@ -173,17 +189,25 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
 
             debug!("@ task id: {:?}", task::current());
 
-            while let Some(mail) = chan_sse.next().await {
-                info!("### received new Mail, sending to stream: {:?}", mail);
+            while let Some(mail_evt) = chan_sse.next().await {
+                info!("### received new Mail, sending to stream: {:?}", mail_evt);
                 debug!("@ task id: {:?}", task::current());
 
-                let mail = MailShort::new(&mail);
-                let body = Body::from_json(&mail)
-                    .unwrap_or_else(|_| "".into())
-                    .into_string()
-                    .await?;
-                trace!("### data to send: {}", body);
-                let sent = sender.send("", body, None).await;
+                let data = match mail_evt {
+                    MailEvt::NewMail(mail) => {
+                        let mail = MailShort::new(&mail);
+                        (
+                            "newMail",
+                            Body::from_json(&mail)
+                                .unwrap_or_else(|_| "".into())
+                                .into_string()
+                                .await?,
+                        )
+                    }
+                    MailEvt::DelMail(id) => ("delMail", id.to_string()),
+                };
+                trace!("### data to send: {:?}", data);
+                let sent = sender.send(data.0, data.1, None).await;
                 if sent.is_err() {
                     warn!("### Err, disconnected: {:?}", sent);
                     break;

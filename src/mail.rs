@@ -46,8 +46,8 @@ impl Mail {
                 if line != "" {
                     if &line[..1] == " " {
                         if let Some(prev_line) = this.headers.last_mut() {
-                            prev_line.push(' ');
-                            prev_line.push_str(line.trim_start());
+                            prev_line.push_str("\r\n");
+                            prev_line.push_str(line);
                             continue;
                         }
                     }
