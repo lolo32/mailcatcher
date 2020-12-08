@@ -13,40 +13,54 @@
     <script type="module">
         import {app, every, h, request, stopPropagation, text} from "./hyperapp.js"
 
+        // Humanize mail date
         const since = (ts) => {
             const delta = Date.now() / 1000 - ts
             const s = (step, text) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 0}).format(
                 delta / step)}${text} ago`
 
             if (delta < 60) {
+                // less than 1 minute
                 return "a few sec"
             } else if (delta < 3600) {
+                // less than 1 hour
                 return s(60, " min")
             } else if (delta < 86400) {
+                // less than 1 day
                 return s(3600, "h")
             } else if (delta < 604800) {
+                // less than 1 week
                 return s(86400, "d")
             } else if (delta < 2419200) {
+                // less than 1 month
                 return s(604800, "w")
             } else {
+                // more than 1 month
                 return s(2419200, " months")
             }
         }
+        // Humanize size
         const size = (len) => {
             const s = (len, unit) => `${new Intl.NumberFormat("en-US", {maximumFractionDigits: 1}).format(len)} ${unit}`
 
             if (len < 1024) {
+                // less than 1kb
                 return s(len, "b")
             } else if (len < 1048576) {
+                // less than 1kb
                 return s(len / 1024, "kb")
             } else if (len < 1073741824) {
+                // less than 1Mb
                 return s(len / 1048576, "Mb")
             } else {
+                // more than 1Mb
                 return s(len / 1073741824, "Gb")
             }
         }
+        // Humanize mail date
         const updateSince = (mail) => ({...mail, since: since(mail.date)})
 
+        // Process mail list
         const MailListProcess = (state, mails) => {
             let exists = mails.find(mail => mail.id === state.id)
             return {
@@ -57,14 +71,18 @@
                 id: exists ? state.id : "",
             }
         }
+        // AJAX mail list request
         const FetchMails = () => request({
             url: "/mails",
             expect: "json",
             action: MailListProcess,
         })
+        // Retrieve mails list
         const GetMailList = (state) => [{...state, fetching: true}, FetchMails()]
 
+        // Confirm the deletion of the mail
         const MailRemoved = (state) => ({...state, fetching: false})
+        // Ask to delete a mail
         const RemoveMail = (state, event) => {
             const id = event.target.dataset.id
             return [
@@ -76,7 +94,9 @@
             ]
         }
 
+        // Display mail in raw format
         const MailRaw = (state, rawMail) => ({...state, fetching: false, rawMail})
+        // Retrieve the mail in raw format
         const SourceMail = (state, event) => {
             const id = event.target.dataset.id
             return [
@@ -88,9 +108,12 @@
                 }),
             ]
         }
+        // Close the RAW mail displayed
         const CloseSourceMail = (state) => ({...state, rawMail: false})
 
+        // Update mail displayed at the right side
         const MailDetail = (state, mail) => ({...state, fetching: false, mail})
+        // Retrieve the mail details from the selection on the left
         const GetMailDetail = (state, event) => {
             const source = target =>
                 (target.dataset && target.dataset.id) ? target.dataset.id : source(target.parentNode)
@@ -106,11 +129,13 @@
             ]
         }
 
+        // Remove duplicate from an array
         const removeDuplicateFromArray = (array, key) => {
             let check = new Set()
             return array.filter(obj => !check.has(obj[key]) && check.add(obj[key]))
         }
 
+        // Configure SSE listening
         const SSEStream = (dispatch) => {
             const pushMail = (state, mail) => {
                 let mails = [...state.mails]
@@ -128,11 +153,15 @@
         }
         const initSse = (props) => [SSEStream, props]
 
+        // Toggle header display from/to raw/humanized
         const SwitchRaw = (state) => ({...state, raw: !state.raw})
+        // Enable/Disable SSE automatic update
         const ToggleSse = (state) => ({...state, sse: !state.sse})
 
+        // Update mail date
         const UpdateDate = (state) => ({...state, mails: state.mails.map(updateSince)})
 
+        // To display mail information in the list
         const display_mail = (id, mail) => h("li", {
                 onclick: GetMailDetail,
                 "data-id": mail.id,
@@ -144,10 +173,15 @@
                     "w3-padding-small",
                 ],
             }, [
+                // Recipient
                 h("div", {class: "to"}, text(mail.to.join(", "))),
+                // Subject
                 h("div", {class: "subject"}, text(mail.subject)),
+                // Details
                 h("div", {class: "w3-row"}, [
+                    // Date
                     h("div", {class: ["since", "w3-twothird"]}, text(mail.since)),
+                    // Size
                     h("div", {class: ["size", "w3-third", "w3-right-align"]}, text(size(mail.size))),
                 ]),
             ],
@@ -166,54 +200,73 @@
                     sse: true,
                     rawMail: false,
                 },
+                // Retrieve mail list at start
                 FetchMails(),
             ],
             subscriptions: (state) => [
+                // Update reception time
                 every(1000, UpdateDate),
+                // Enable/Disable SSE
                 state.sse && initSse({action: GetMailList}),
             ],
             view: ({fetching, mails, mail, raw, id, sse, rawMail}) =>
                 h("main", {}, [
+                    // Display if a request is pending
                     fetching &&
                     h("div", {class: ["w3-display-topright", "w3-tag", "w3-theme-dark"]}, text("Fetching...")),
+                    // Navigation bar that will display the mail list
                     h("div",
                         {class: ["w3-sidebar", "w3-bar-block", "w3-card-4", "w3-theme-l5"], style: {width: "25%"}}, [
                             h("div", {}, [
+                                // Toggle the SSE ON or OFF
                                 h("button", {class: ["w3-theme-action", "w3-btn"], onclick: ToggleSse},
                                     text(`sse:${sse}`)),
                                 text(" "),
+                                // Manual refresh mail list
                                 h("button", {class: ["w3-theme-action", "w3-btn"], onclick: GetMailList},
-                                    text("update")),
+                                    text("Update")),
                             ]),
+                            // List of mails
                             h("ul", {class: ["w3-small", "w3-padding-16", "w3-ul", "w3-border-bottom"]},
-                                mails.length ? mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail))
-                                             : h("li",
-                                    {class: ["w3-row", "w3-padding-small", "w3-center", "w3-medium"]},
+                                mails.length
+                                // Display mail brief content list if there is mails
+                                ? mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail))
+                                // Display "no messages" if list is empty
+                                : h("li", {class: ["w3-row", "w3-padding-small", "w3-center", "w3-medium"]},
                                     text("No messages")),
                             ),
                         ]),
+                    // If a mail has been selected, display it
                     (mail && mail.data) &&
                     h("article", {style: {marginLeft: "25%"}}, [
+                        // Mail headers
                         h("header", {class: ["w3-panel", "w3-card-4", "w3-theme-l4"], style: {marginTop: 0}}, [
+                            // Toggle between raw headers and humanized
                             h("button", {class: ["w3-theme-action", "w3-btn"], onclick: SwitchRaw},
                                 text(raw ? "decoded" : "raw")),
                             text(" "),
+                            // Remove the mail
                             h("button", {class: ["w3-theme-action", "w3-btn"], onclick: RemoveMail, "data-id": id},
                                 text("remove")),
                             text(" "),
+                            // Retrieve the source of the mail
                             h("button", {class: ["w3-theme-action", "w3-btn"], onclick: SourceMail, "data-id": id},
                                 text("source")),
+                            // Headers list
                             h("div", {class: ["w3-responsive"], style: {padding: "8px 12px"}},
                                 mail[raw ? "raw" : "headers"].map(
                                     header => h("pre", {style: {lineHeight: 0}}, text(header)),
                                 )),
                         ]),
+                        // Mail content
                         h("main", {}, [
                             h("pre", {class: ["w3-responsive", "w3-panel"]}, text(mail.data)),
                         ]),
+                        // Modal window that display source mail
                         rawMail &&
                         h("div", {class: ["w3-modal", "w3-responsive"], onclick: stopPropagation(CloseSourceMail)},
                             h("div", {class: ["w3-modal-content", "w3-card-4"]}, [
+                                // Close modal button
                                 h("span", {
                                         class: ["w3-button", "w3-display-topright", "w3-theme-action"],
                                         onclick: CloseSourceMail,
