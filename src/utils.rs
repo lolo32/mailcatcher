@@ -1,6 +1,8 @@
 use core::future::Future;
-use std::fmt;
-use std::time::{Duration, Instant};
+use std::{
+    fmt,
+    time::{Duration, Instant},
+};
 
 use async_std::{net::SocketAddr, task};
 

@@ -13,21 +13,18 @@ use futures::{
 };
 use regex::Regex;
 use tide::{
-    http::{headers, mime},
+    http::{headers, mime, Mime},
     prelude::*,
     Body, Request, Response, StatusCode,
 };
 use ulid::Ulid;
 
-use asset::Asset;
-
 use crate::{
     encoding::decode_string,
-    http::sse_evt::SseEvt,
+    http::{asset::Asset, sse_evt::SseEvt},
     mail::{Mail, Type},
     utils::spawn_task_and_swallow_log_errors,
 };
-use tide::http::Mime;
 
 mod asset;
 mod sse;
