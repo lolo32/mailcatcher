@@ -22,39 +22,34 @@ use ulid::Ulid;
 use asset::Asset;
 
 use crate::encoding::decode_string;
+use crate::http::sse_evt::SseEvt;
 use crate::mail::{Mail, Type};
 use crate::utils::spawn_task_and_swallow_log_errors;
 
 mod asset;
 mod sse;
+mod sse_evt;
 
 #[derive(Clone)]
 pub struct State {
-    chan_sse: BroadcastChannel<MailEvt, UnboundedSender<MailEvt>, UnboundedReceiver<MailEvt>>,
+    sse_stream: BroadcastChannel<SseEvt, UnboundedSender<SseEvt>, UnboundedReceiver<SseEvt>>,
 }
 
 lazy_static! {
     static ref MAILS: Arc<RwLock<fnv::FnvHashMap<Ulid, Mail>>> = Default::default();
 }
 
-#[derive(Clone, Debug)]
-enum MailEvt {
-    NewMail(Mail),
-    DelMail(Ulid),
-    Ping,
-}
-
 pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Result<()> {
-    let chan_sse = BroadcastChannel::new();
+    let sse_stream = BroadcastChannel::new();
 
     // Process mails that are received by the SMTP side
-    let chan_sse_tx = chan_sse.clone();
+    let sse_tx_stream = sse_stream.clone();
     spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
         let mails = Arc::clone(&MAILS);
         while let Some(mail) = rx_mails.next().await {
             info!(">>> Received new mail: {:?}", mail);
             // Notify javascript side by SSE
-            match chan_sse_tx.send(&MailEvt::NewMail(mail.clone())).await {
+            match sse_tx_stream.send(&SseEvt::NewMail(mail.clone())).await {
                 Ok(_) => trace!(">>> New mail notification sent to channel"),
                 Err(e) => trace!(">>> Err new mail notification to channel: {:?}", e),
             }
@@ -64,26 +59,26 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     });
 
     // Noop consumer to empty the ctream
-    let mut sse_noop = chan_sse.clone();
+    let mut sse_noop_stream = sse_stream.clone();
     spawn_task_and_swallow_log_errors("Task: Noop stream emptier".into(), async move {
         loop {
             // Do nothing, it's just to empty the stream
-            sse_noop.next().await;
+            sse_noop_stream.next().await;
         }
     });
 
     // Noop consumer to empty the ctream
-    let sse_ping = chan_sse.clone();
+    let sse_tx_ping_stream = sse_stream.clone();
     spawn_task_and_swallow_log_errors("Task: Ping SSE sender".into(), async move {
         loop {
             trace!("Sending ping");
             // Do nothing, it's just to empty the stream
-            sse_ping.send(&MailEvt::Ping).await.unwrap();
+            sse_tx_ping_stream.send(&SseEvt::Ping).await.unwrap();
             task::sleep(Duration::from_secs(10)).await;
         }
     });
 
-    let state = State { chan_sse };
+    let state = State { sse_stream };
     let mut app = tide::with_state(state);
 
     app.at("/").get(|_req| async {
@@ -208,7 +203,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
             let mail = mails.write().await.remove(&id);
             if mail.is_some() {
                 info!("mail removed {:?}", mail);
-                req.state().chan_sse.send(&MailEvt::DelMail(id)).await?;
+                req.state().sse_stream.send(&SseEvt::DelMail(id)).await?;
                 return Ok("OK".into());
             }
         }
