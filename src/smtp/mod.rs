@@ -10,8 +10,7 @@ use futures::{
     {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
 
-use crate::{mail::Mail, utils::*};
-use command::Command;
+use crate::{mail::Mail, smtp::command::Command, utils::*};
 
 mod command;
 
@@ -304,7 +303,7 @@ impl<'a> Smtp<'a> {
                 self.data.to_mut().clear();
 
                 self.write(MSG_250_OK).await?;
-                Ok((true, Some(mail.clone())))
+                Ok((true, Some(mail)))
             }
             Command::Quit => {
                 self.write(

@@ -1,10 +1,10 @@
+use std::borrow::Cow;
+
+use async_std::task;
+use tide::Body;
 use ulid::Ulid;
 
-use crate::http::MailShort;
-use crate::mail::Mail;
-use async_std::task;
-use std::borrow::Cow;
-use tide::Body;
+use crate::{http::MailShort, mail::Mail};
 
 #[derive(Clone, Debug)]
 pub enum SseEvt {

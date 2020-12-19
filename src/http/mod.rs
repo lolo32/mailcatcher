@@ -21,10 +21,13 @@ use ulid::Ulid;
 
 use asset::Asset;
 
-use crate::encoding::decode_string;
-use crate::http::sse_evt::SseEvt;
-use crate::mail::{Mail, Type};
-use crate::utils::spawn_task_and_swallow_log_errors;
+use crate::{
+    encoding::decode_string,
+    http::sse_evt::SseEvt,
+    mail::{Mail, Type},
+    utils::spawn_task_and_swallow_log_errors,
+};
+use tide::http::Mime;
 
 mod asset;
 mod sse;
@@ -81,49 +84,13 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     let state = State { sse_stream };
     let mut app = tide::with_state(state);
 
-    app.at("/").get(|_req| async {
-        const HOME: &str = "home.html";
+    app.at("/")
+        .get(|_req| async { Ok(send_asset("home.html", mime::HTML)) });
+    app.at("/hyperapp.js")
+        .get(|_req| async { Ok(send_asset("hyperapp.js", mime::JAVASCRIPT)) });
+    app.at("/w3.css")
+        .get(|_req| async { Ok(send_asset("w3.css", mime::CSS)) });
 
-        let home = Asset::get(HOME).unwrap();
-
-        let response = Response::builder(StatusCode::Ok)
-            .content_type(mime::HTML)
-            .header(headers::CONTENT_LENGTH, home.len().to_string());
-        let response = if let Some(modif) = Asset::modif(HOME) {
-            response.header(headers::LAST_MODIFIED, modif)
-        } else {
-            response
-        };
-        Ok(response.body(&*home).build())
-    });
-    app.at("/hyperapp.js").get(|_req| async {
-        const HYPERAPP: &str = "hyperapp.js";
-        let hyperapp = Asset::get(HYPERAPP).unwrap();
-
-        let response = Response::builder(StatusCode::Ok)
-            .content_type(mime::JAVASCRIPT)
-            .header(headers::CONTENT_LENGTH, hyperapp.len().to_string());
-        let response = if let Some(modif) = Asset::modif(HYPERAPP) {
-            response.header(headers::LAST_MODIFIED, modif)
-        } else {
-            response
-        };
-        Ok(response.body(&*hyperapp).build())
-    });
-    app.at("/w3.css").get(|_req| async {
-        const W3: &str = "w3.css";
-        let w3 = Asset::get(W3).unwrap();
-
-        let response = Response::builder(StatusCode::Ok)
-            .content_type(mime::CSS)
-            .header(headers::CONTENT_LENGTH, w3.len().to_string());
-        let response = if let Some(modif) = Asset::modif(W3) {
-            response.header(headers::LAST_MODIFIED, modif)
-        } else {
-            response
-        };
-        Ok(response.body(&*w3).build())
-    });
     // Get all mail list
     app.at("/mails").get(|_req| async move {
         let mails = Arc::clone(&MAILS);
@@ -140,7 +107,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
                 "headers": mail
                     .get_headers()
                     .iter()
-                    .map(|header| decode_string(header).to_string())
+                    .map(|header| decode_string(header))
                     .collect::<Vec<_>>(),
                 "raw": mail.get_headers().clone(),
                 "data": mail.get_text().unwrap().clone(),
@@ -228,7 +195,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     Ok(())
 }
 
-async fn get_mail<'a>(req: &Request<State>) -> tide::Result<Option<Mail>> {
+async fn get_mail(req: &Request<State>) -> tide::Result<Option<Mail>> {
     let id = req.param("id")?;
     if let Ok(id) = Ulid::from_string(id) {
         let mails = Arc::clone(&MAILS);
@@ -238,6 +205,20 @@ async fn get_mail<'a>(req: &Request<State>) -> tide::Result<Option<Mail>> {
     }
     trace!("mail with id not found {}", id);
     Ok(None)
+}
+
+fn send_asset(name: &str, mime: Mime) -> Response {
+    let content = Asset::get(name).unwrap();
+
+    let response = Response::builder(StatusCode::Ok)
+        .content_type(mime)
+        .header(headers::CONTENT_LENGTH, content.len().to_string());
+    let response = if let Some(modif) = Asset::modif(name) {
+        response.header(headers::LAST_MODIFIED, modif)
+    } else {
+        response
+    };
+    response.body(&*content).build()
 }
 
 #[derive(Debug, Serialize)]
