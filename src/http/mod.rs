@@ -79,7 +79,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
             trace!("Sending ping");
             // Do nothing, it's just to empty the stream
             sse_ping.send(&MailEvt::Ping).await.unwrap();
-            task::sleep(Duration::from_secs(30)).await;
+            task::sleep(Duration::from_secs(10)).await;
         }
     });
 
@@ -216,7 +216,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     });
 
     // SSE stream
-    app.at("/sse").get(tide::sse::endpoint(sse::sse));
+    app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
 
     let mut listener = app
         .bind(
