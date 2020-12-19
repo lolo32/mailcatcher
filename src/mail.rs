@@ -27,8 +27,8 @@ impl Mail {
     pub fn new(from: &str, to: &[String], data: &str) -> Self {
         let mut this = Self {
             id: Ulid::new(),
-            from: from.to_lowercase(),
-            to: to.iter().map(|addr| addr.to_lowercase()).collect(),
+            from: from.to_string(),
+            to: to.to_vec(),
             subject: "(No subject)".to_string(),
             date: Utc::now(),
             headers: Vec::default(),
@@ -43,7 +43,7 @@ impl Mail {
 
         for line in data.lines() {
             if headers {
-                if line != "" {
+                if !line.is_empty() {
                     if &line[..1] == " " {
                         if let Some(prev_line) = this.headers.last_mut() {
                             prev_line.push_str("\r\n");
@@ -106,11 +106,7 @@ impl Mail {
      * Retrieve the content in text format
      */
     pub fn get_text(&self) -> Option<&String> {
-        if let Some(text) = self.data.get(&Type::Text) {
-            Some(text)
-        } else {
-            self.get_html()
-        }
+        self.data.get(&Type::Text)
     }
 
     /**
@@ -135,7 +131,7 @@ impl Mail {
                 return Some(if raw {
                     content.to_string()
                 } else {
-                    decode_string(content).to_string()
+                    decode_string(content)
                 });
             }
         }
@@ -175,20 +171,16 @@ This is a test mailing
 
     #[test]
     fn split_headers_body() {
-        let mail = Mail::new(
-            "from@example.com",
-            &["to@example.com".to_string()],
-            DATA_SIMPLE,
-        );
+        let mail = Mail::new("from@example.com", &["to@example.com".into()], DATA_SIMPLE);
 
         assert_eq!(mail.headers.len(), 6);
         assert_eq!(mail.from, "from@example.com");
         assert_eq!(mail.to.len(), 1);
-        assert_eq!(mail.to.get(0), Some(&"to@example.com".to_string()));
+        assert_eq!(mail.to.get(0).unwrap(), "to@example.com");
         assert!(mail.data.contains_key(&Type::Text));
         assert_eq!(
-            mail.data.get(&Type::Text),
-            Some(&"This is a test mailing\r\n\r\n".to_string())
+            mail.data.get(&Type::Text).unwrap(),
+            "This is a test mailing\r\n\r\n"
         );
     }
 

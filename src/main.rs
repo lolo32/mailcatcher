@@ -23,7 +23,7 @@ async fn main_fut() -> crate::Result<()> {
     // TODO: Parse arguments
     let (port_smtp, port_http) = (1025_u16, 1080_u16);
     // TODO: Parse arguments
-    let my_name = "MailCatcher".to_string();
+    let my_name = "MailCatcher";
     // TODO: Parse argument
     let use_starttls = false;
 
@@ -34,7 +34,7 @@ async fn main_fut() -> crate::Result<()> {
 
     let (tx_mails, rx_mails) = async_channel::unbounded();
 
-    let s = smtp::serve_smtp(port_smtp, my_name.clone(), tx_mails, use_starttls);
+    let s = smtp::serve_smtp(port_smtp, my_name, tx_mails, use_starttls);
     let h = http::serve_http(port_http, rx_mails);
     let _ = try_join![s, h];
 

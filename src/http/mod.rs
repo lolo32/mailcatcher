@@ -1,26 +1,35 @@
+use std::time::Duration;
+
 use async_channel::Receiver;
 use async_std::{
     net::ToSocketAddrs,
-    prelude::*,
     sync::{Arc, RwLock},
     task,
 };
 use broadcaster::BroadcastChannel;
-use chrono::NaiveDate;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use futures::{
+    channel::mpsc::{UnboundedReceiver, UnboundedSender},
+    StreamExt,
+};
 use regex::Regex;
 use tide::{
     http::{headers, mime},
     prelude::*,
-    sse, Body, Request, Response, StatusCode,
+    Body, Request, Response, StatusCode,
 };
 use ulid::Ulid;
 
+use asset::Asset;
+
 use crate::encoding::decode_string;
 use crate::mail::{Mail, Type};
+use crate::utils::spawn_task_and_swallow_log_errors;
+
+mod asset;
+mod sse;
 
 #[derive(Clone)]
-struct State {
+pub struct State {
     chan_sse: BroadcastChannel<MailEvt, UnboundedSender<MailEvt>, UnboundedReceiver<MailEvt>>,
 }
 
@@ -32,6 +41,7 @@ lazy_static! {
 enum MailEvt {
     NewMail(Mail),
     DelMail(Ulid),
+    Ping,
 }
 
 pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Result<()> {
@@ -39,7 +49,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
 
     // Process mails that are received by the SMTP side
     let chan_sse_tx = chan_sse.clone();
-    task::spawn(async move {
+    spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
         let mails = Arc::clone(&MAILS);
         while let Some(mail) = rx_mails.next().await {
             info!(">>> Received new mail: {:?}", mail);
@@ -50,49 +60,74 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
             }
             mails.write().await.insert(mail.get_id(), mail);
         }
+        Ok(())
     });
 
     // Noop consumer to empty the ctream
     let mut sse_noop = chan_sse.clone();
-    task::spawn(async move {
+    spawn_task_and_swallow_log_errors("Task: Noop stream emptier".into(), async move {
         loop {
             // Do nothing, it's just to empty the stream
             sse_noop.next().await;
         }
     });
 
+    // Noop consumer to empty the ctream
+    let sse_ping = chan_sse.clone();
+    spawn_task_and_swallow_log_errors("Task: Ping SSE sender".into(), async move {
+        loop {
+            trace!("Sending ping");
+            // Do nothing, it's just to empty the stream
+            sse_ping.send(&MailEvt::Ping).await.unwrap();
+            task::sleep(Duration::from_secs(30)).await;
+        }
+    });
+
     let state = State { chan_sse };
     let mut app = tide::with_state(state);
+
     app.at("/").get(|_req| async {
-        let fs_path = std::env::current_dir()?.join("asset").join("home.html");
-        if let Ok(body) = Body::from_file(fs_path).await {
-            Ok(body.into())
+        const HOME: &str = "home.html";
+
+        let home = Asset::get(HOME).unwrap();
+
+        let response = Response::builder(StatusCode::Ok)
+            .content_type(mime::HTML)
+            .header(headers::CONTENT_LENGTH, home.len().to_string());
+        let response = if let Some(modif) = Asset::modif(HOME) {
+            response.header(headers::LAST_MODIFIED, modif)
         } else {
-            Ok(Response::new(StatusCode::NotFound))
-        }
+            response
+        };
+        Ok(response.body(&*home).build())
     });
     app.at("/hyperapp.js").get(|_req| async {
-        let fs_path = std::env::current_dir()?.join("asset").join("hyperapp.js");
-        if let Ok(body) = Body::from_file(fs_path).await {
-            Ok(body.into())
+        const HYPERAPP: &str = "hyperapp.js";
+        let hyperapp = Asset::get(HYPERAPP).unwrap();
+
+        let response = Response::builder(StatusCode::Ok)
+            .content_type(mime::JAVASCRIPT)
+            .header(headers::CONTENT_LENGTH, hyperapp.len().to_string());
+        let response = if let Some(modif) = Asset::modif(HYPERAPP) {
+            response.header(headers::LAST_MODIFIED, modif)
         } else {
-            Ok(Response::new(StatusCode::NotFound))
-        }
+            response
+        };
+        Ok(response.body(&*hyperapp).build())
     });
     app.at("/w3.css").get(|_req| async {
-        let w3 = include_str!("../asset/w3.css");
-        // Tue, 01 Dec 2020 00:00:00 GMT
-        let date = NaiveDate::from_ymd(2020, 12, 1)
-            .and_hms(0, 0, 0)
-            .format("%a, %d %b %Y %T GMT")
-            .to_string();
-        let res = Response::builder(StatusCode::Ok)
+        const W3: &str = "w3.css";
+        let w3 = Asset::get(W3).unwrap();
+
+        let response = Response::builder(StatusCode::Ok)
             .content_type(mime::CSS)
-            .header(headers::LAST_MODIFIED, date)
-            .header(headers::CONTENT_LENGTH, w3.len().to_string())
-            .body(w3)
-            .build();
-        Ok(res)
+            .header(headers::CONTENT_LENGTH, w3.len().to_string());
+        let response = if let Some(modif) = Asset::modif(W3) {
+            response.header(headers::LAST_MODIFIED, modif)
+        } else {
+            response
+        };
+        Ok(response.body(&*w3).build())
     });
     // Get all mail list
     app.at("/mails").get(|_req| async move {
@@ -123,7 +158,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
         .get(|req: Request<State>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 return Ok(Body::from_string(match mail.get_text() {
-                    Some(text) => text.clone(),
+                    Some(text) => text.to_string(),
                     None => "".to_string(),
                 })
                 .into());
@@ -133,11 +168,11 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     app.at("/mail/:id/html")
         .get(|req: Request<State>| async move {
             if let Some(mail) = get_mail(&req).await? {
-                return Ok(Body::from_string(match mail.get_html() {
-                    Some(text) => text.clone(),
-                    None => "".to_string(),
-                })
-                .into());
+                let s = match mail.get_html() {
+                    Some(text) => &text[..],
+                    None => "",
+                };
+                return Ok(Body::from_bytes(s.as_bytes().to_vec()).into());
             }
             Ok(Response::new(StatusCode::NotFound))
         });
@@ -181,43 +216,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     });
 
     // SSE stream
-    app.at("/sse")
-        .get(sse::endpoint(|req: Request<State>, sender| async move {
-            trace!("### new /sse connexion");
-            let mut chan_sse = req.state().chan_sse.clone();
-            trace!("### chan_sse: {:?}", chan_sse);
-
-            debug!("@ task id: {:?}", task::current());
-
-            while let Some(mail_evt) = chan_sse.next().await {
-                info!("### received new Mail, sending to stream: {:?}", mail_evt);
-                debug!("@ task id: {:?}", task::current());
-
-                let data = match mail_evt {
-                    MailEvt::NewMail(mail) => {
-                        let mail = MailShort::new(&mail);
-                        (
-                            "newMail",
-                            Body::from_json(&mail)
-                                .unwrap_or_else(|_| "".into())
-                                .into_string()
-                                .await?,
-                        )
-                    }
-                    MailEvt::DelMail(id) => ("delMail", id.to_string()),
-                };
-                trace!("### data to send: {:?}", data);
-                let sent = sender.send(data.0, data.1, None).await;
-                if sent.is_err() {
-                    warn!("### Err, disconnected: {:?}", sent);
-                    break;
-                } else {
-                    trace!("### Server-Sent Events sent");
-                }
-            }
-            info!("### Exit /sse");
-            Ok(())
-        }));
+    app.at("/sse").get(tide::sse::endpoint(sse::sse));
 
     let mut listener = app
         .bind(
@@ -234,7 +233,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     Ok(())
 }
 
-async fn get_mail(req: &Request<State>) -> tide::Result<Option<Mail>> {
+async fn get_mail<'a>(req: &Request<State>) -> tide::Result<Option<Mail>> {
     let id = req.param("id")?;
     if let Ok(id) = Ulid::from_string(id) {
         let mails = Arc::clone(&MAILS);
@@ -260,9 +259,9 @@ impl MailShort {
     pub fn new(mail: &Mail) -> Self {
         Self {
             id: mail.get_id().to_string(),
-            from: mail.from().clone(),
-            to: mail.to().clone(),
-            subject: mail.get_subject().clone(),
+            from: mail.from().to_string(),
+            to: mail.to().iter().map(|s| s.to_string()).collect(),
+            subject: mail.get_subject().to_string(),
             date: mail.get_date().timestamp(),
             size: mail.get_size(),
         }

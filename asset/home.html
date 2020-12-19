@@ -148,6 +148,7 @@
             let evt = new EventSource("/sse")
             evt.addEventListener("newMail", (ev) => dispatch(pushMail, JSON.parse(ev.data)))
             evt.addEventListener("delMail", (ev) => dispatch(delMail, ev.data))
+            evt.addEventListener("ping", console.log)
 
             return () => evt.close()
         }

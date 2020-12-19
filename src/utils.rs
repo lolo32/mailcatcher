@@ -8,10 +8,13 @@ pub fn spawn_task_and_swallow_log_errors<F>(task_name: String, fut: F) -> task::
 where
     F: Future<Output = crate::Result<()>> + Send + 'static,
 {
-    task::spawn(async move { log_errors(task_name, fut).await.unwrap_or_default() })
+    task::Builder::new()
+        .name(task_name.clone())
+        .spawn(async move { log_errors(task_name, fut).await.unwrap_or_default() })
+        .unwrap()
 }
 
-pub async fn log_errors<F, T, E>(task_name: String, fut: F) -> Option<T>
+async fn log_errors<F, T, E>(task_name: String, fut: F) -> Option<T>
 where
     F: Future<Output = Result<T, E>>,
     E: std::fmt::Display,
