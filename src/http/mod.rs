@@ -25,6 +25,7 @@ use crate::{
     mail::{Mail, Type},
     utils::spawn_task_and_swallow_log_errors,
 };
+use std::borrow::Cow;
 
 mod asset;
 mod sse;
@@ -82,11 +83,11 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     let mut app = tide::with_state(state);
 
     app.at("/")
-        .get(|_req| async { Ok(send_asset("home.html", mime::HTML)) });
+        .get(|req: Request<State>| async { Ok(send_asset(req, "home.html", mime::HTML)) });
     app.at("/hyperapp.js")
-        .get(|_req| async { Ok(send_asset("hyperapp.js", mime::JAVASCRIPT)) });
+        .get(|req: Request<State>| async { Ok(send_asset(req, "hyperapp.js", mime::JAVASCRIPT)) });
     app.at("/w3.css")
-        .get(|_req| async { Ok(send_asset("w3.css", mime::CSS)) });
+        .get(|req: Request<State>| async { Ok(send_asset(req, "w3.css", mime::CSS)) });
 
     // Get all mail list
     app.at("/mails").get(|_req| async move {
@@ -204,17 +205,36 @@ async fn get_mail(req: &Request<State>) -> tide::Result<Option<Mail>> {
     Ok(None)
 }
 
-fn send_asset(name: &str, mime: Mime) -> Response {
+fn send_asset(req: Request<State>, name: &str, mime: Mime) -> Response {
+    let compressed = if let Some(header_value) = req.header(headers::ACCEPT_ENCODING) {
+        header_value.get(0).unwrap().as_str().contains("deflate")
+    } else {
+        false
+    };
     let content = Asset::get(name).unwrap();
+    let content = if compressed {
+        content
+    } else {
+        let uncompressed = miniz_oxide::inflate::decompress_to_vec(&content[..]).unwrap();
+        Cow::Owned(uncompressed)
+    };
+    debug!("content_len: {:?}", content.len());
 
     let response = Response::builder(StatusCode::Ok)
         .content_type(mime)
         .header(headers::CONTENT_LENGTH, content.len().to_string());
+    let response = if compressed {
+        debug! {"using deflate compression output"};
+        response.header(headers::CONTENT_ENCODING, "deflate")
+    } else {
+        response
+    };
     let response = if let Some(modif) = Asset::modif(name) {
         response.header(headers::LAST_MODIFIED, modif)
     } else {
         response
     };
+
     response.body(&*content).build()
 }
 

@@ -8,7 +8,9 @@ use proc_macro::TokenStream;
 use std::{env, fs, path::Path, time::SystemTime};
 
 use chrono::{DateTime, Utc};
-use syn::{export::TokenStream2, Data, DeriveInput, Fields, Ident, Lit, Meta};
+use miniz_oxide::deflate::compress_to_vec;
+use syn::export::Span;
+use syn::{export::TokenStream2, Data, DeriveInput, Fields, Ident, Lit, LitByteStr, Meta};
 
 fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
     let mut match_values = Vec::new();
@@ -24,10 +26,13 @@ fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
                 .unwrap()
                 .to_owned();
 
+            let content = std::fs::read(full_path).unwrap();
+            let compressed = compress_to_vec(&content, 10);
+            let bytes = LitByteStr::new(&compressed[..], Span::call_site());
+
             match_values.push(quote! {
                 #rel_path => {
-                    let bytes = &include_bytes!(#full_path)[..];
-                    Some(std::borrow::Cow::from(bytes))
+                    Some(std::borrow::Cow::Borrowed(#bytes))
                 }
             });
 
@@ -69,7 +74,11 @@ fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
             pub fn get(file_path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
                 let file_path = std::path::Path::new(#folder_path).join(file_path);
                 match std::fs::read(file_path) {
-                    Ok(contents) => Some(std::borrow::Cow::from(contents)),
+                    Ok(contents) => {
+                        let compressed = miniz_oxide::deflate::compress_to_vec(&contents, 6);
+
+                        Some(std::borrow::Cow::Owned(compressed))
+                    },
                     Err(_e) => None,
                 }
             }
