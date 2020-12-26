@@ -5,27 +5,44 @@ use crate::encoding::decode_string;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub enum Type {
+    // Raw mail content
     Raw,
+    // Mail content that is in text format
     Text,
+    // Mail content that is in HTML
     Html,
     Image(String, String),
     Other(String, String),
 }
 
+pub enum HeaderRepresentation {
+    Raw,
+    Humanized,
+}
+
+// Content of a mail
 #[derive(Debug, Clone)]
 pub struct Mail {
+    // Id, internal used and JavaScript identifier
     id: Ulid,
+    // From address
     from: String,
+    // Array of receivers
     to: Vec<String>,
+    // Subject of the mail
     subject: String,
+    // Date of reception
     date: DateTime<Utc>,
+    // Array of headers
     headers: Vec<String>,
+    // Content of the mail, split in Type
     data: fnv::FnvHashMap<Type, String>,
 }
 
 impl Mail {
+    // Create a new mail
     pub fn new(from: &str, to: &[String], data: &str) -> Self {
-        let mut this = Self {
+        let mut mail = Self {
             id: Ulid::new(),
             from: from.to_string(),
             to: to.to_vec(),
@@ -35,117 +52,140 @@ impl Mail {
             data: fnv::FnvHashMap::default(),
         };
 
-        let mut headers = true;
+        // Store RAW mail content
+        mail.data.insert(Type::Raw, data.to_string());
 
-        let mut data_temp = String::new();
+        let (headers, body) = Mail::split_header_body(data);
 
-        this.data.insert(Type::Raw, data.to_string());
-
-        for line in data.lines() {
-            if headers {
-                if !line.is_empty() {
-                    if &line[..1] == " " {
-                        if let Some(prev_line) = this.headers.last_mut() {
-                            prev_line.push_str("\r\n");
-                            prev_line.push_str(line);
-                            continue;
-                        }
-                    }
-                    this.headers.push(line.to_string());
-                } else {
-                    headers = false;
+        // Parse the headers
+        for header in headers.lines() {
+            if &header[..1] == " " {
+                // Multiline header, so append it into multiline content and last entry of the array
+                if let Some(prev_line) = mail.headers.last_mut() {
+                    prev_line.push_str("\r\n");
+                    prev_line.push_str(header);
+                    continue;
                 }
-            } else {
-                if !data_temp.is_empty() {
-                    data_temp.push_str("\r\n");
-                }
-                data_temp.push_str(line);
             }
+            // Single line, or first line of a multiline header
+            mail.headers.push(header.to_string());
         }
-        this.data.insert(Type::Text, data_temp);
+
+        mail.data.insert(Type::Text, body);
 
         // Extract Date
-        if let Some(date_str) = this.get_header_content("Date", false) {
-            let local_date = DateTime::parse_from_rfc2822(date_str.as_str()).ok();
-            if let Some(local_date) = local_date {
-                this.date = local_date.with_timezone(&Utc);
+        let date_header = mail.get_header_content("Date", HeaderRepresentation::Raw);
+        if let Some(date_str) = date_header.first() {
+            if let Ok(local_date) = DateTime::parse_from_rfc2822(date_str.as_str()) {
+                mail.date = local_date.with_timezone(&Utc);
             }
         }
 
         // Extract Subject
-        if let Some(subject) = this.get_header_content("Subject", false) {
-            this.subject = subject;
+        let subject_header = mail.get_header_content("Subject", HeaderRepresentation::Raw);
+        if let Some(subject) = subject_header.first() {
+            mail.subject = subject.clone();
         }
 
-        this
+        mail
     }
 
+    pub fn split_header_body(content: &str) -> (String, String) {
+        let mut headers = String::new();
+
+        // Iterator over lines
+        let mut lines = content.lines();
+
+        // Parse the headers
+        while let Some(line) = lines.next() {
+            if line.is_empty() {
+                // Empty line = end of headers, so exit this loop
+                break;
+            }
+            headers.push_str(line);
+            headers.push_str("\r\n");
+        }
+
+        // Parse the body of the mail
+        let mut body = String::new();
+        if let Some(line) = lines.next() {
+            body.push_str(line);
+        }
+        for line in lines {
+            body.push_str("\r\n");
+            body.push_str(line);
+        }
+
+        (headers.trim_end().into(), body)
+    }
+
+    /// Retrieve the ID of the mail
     pub fn get_id(&self) -> Ulid {
         self.id
     }
 
+    /// Retrieve the sender address
     pub fn from(&self) -> &String {
         &self.from
     }
+    /// Retrieve the receivers addresses
     pub fn to(&self) -> &Vec<String> {
         &self.to
     }
 
-    /**
-     * Retrieve mail date, either from the Date header or if not present from the reception time
-     */
+    /// Retrieve mail date, either from the Date header or if not present from the reception time
     pub fn get_date(&self) -> DateTime<Utc> {
         self.date
     }
 
+    /// Retrieve the subject
     pub fn get_subject(&self) -> &String {
         &self.subject
     }
 
-    /**
-     * Retrieve the content in text format
-     */
+    /// Retrieve the content in text format
     pub fn get_text(&self) -> Option<&String> {
         self.data.get(&Type::Text)
     }
 
-    /**
-     * Retrieve the content in html format
-     */
+    /// Retrieve the content in html format
     pub fn get_html(&self) -> Option<&String> {
-        if let Some(html) = self.data.get(&Type::Html) {
-            Some(html)
-        } else {
-            None
-        }
+        self.data.get(&Type::Html)
     }
 
-    pub fn get_header_content(&self, key: &str, raw: bool) -> Option<String> {
+    /// Retrieve the header content, from the key name
+    /// The data can be in literal format or humanized
+    pub fn get_header_content(&self, key: &str, raw: HeaderRepresentation) -> Vec<String> {
         let key = format!("{}: ", key);
-        let key = key.as_str();
         let key_len = key.len();
 
-        for header in &self.headers {
-            if header.len() > key_len && &header[..key_len] == key {
-                let content = &header[key_len..];
-                return Some(if raw {
-                    content.to_string()
-                } else {
-                    decode_string(content)
-                });
-            }
-        }
-        None
+        // Iterate over headers list to find the header
+        self.get_headers(raw)
+            .iter()
+            // Filter over key name
+            .filter(|header| header.len() > key_len && &header[..key_len] == key.as_str())
+            // strip only to header content
+            .map(|header| header[key_len..].to_string())
+            .collect()
     }
 
-    pub fn get_headers(&self) -> &Vec<String> {
-        self.headers.as_ref()
+    /// Retrieve headers list
+    pub fn get_headers(&self, format: HeaderRepresentation) -> Vec<String> {
+        self.headers
+            .iter()
+            .map(|header| match format {
+                HeaderRepresentation::Raw => header.to_string(),
+                HeaderRepresentation::Humanized => decode_string(header),
+            })
+            .collect()
     }
 
+    /// Retrieve mail size
     pub fn get_size(&self) -> usize {
         self.data.get(&Type::Raw).unwrap().len()
     }
 
+    /// Retrieve the data type part of the mail
     pub fn get_data(&self, type_: &Type) -> Option<&String> {
         self.data.get(type_)
     }

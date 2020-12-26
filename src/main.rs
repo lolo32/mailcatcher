@@ -12,10 +12,13 @@ mod mail;
 mod smtp;
 mod utils;
 
+// Result type commonly used in this crate
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 fn main() -> crate::Result<()> {
+    // Initialize the log crate/macros based on RUST_LOG env value
     env_logger::init();
+    // Start the program, that is async, so block waiting it's end
     task::block_on(main_fut())
 }
 
@@ -32,11 +35,15 @@ async fn main_fut() -> crate::Result<()> {
         port_smtp, port_http
     );
 
+    // Channels used to notify a new mail arrived in SMTP side to HTTP side
     let (tx_mails, rx_mails) = async_channel::unbounded();
 
+    // Starting SMTP side
     let s = smtp::serve_smtp(port_smtp, my_name, tx_mails, use_starttls);
+    // Starting HTTP side
     let h = http::serve_http(port_http, rx_mails);
+    // Waiting for both to complete
     let _ = try_join![s, h];
 
-    Ok(())
+    unreachable!()
 }

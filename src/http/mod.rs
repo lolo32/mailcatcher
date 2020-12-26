@@ -11,7 +11,6 @@ use futures::{
     channel::mpsc::{UnboundedReceiver, UnboundedSender},
     StreamExt,
 };
-use regex::Regex;
 use tide::{
     http::{headers, mime, Mime},
     prelude::*,
@@ -19,8 +18,8 @@ use tide::{
 };
 use ulid::Ulid;
 
+use crate::mail::HeaderRepresentation;
 use crate::{
-    encoding::decode_string,
     http::{asset::Asset, sse_evt::SseEvt},
     mail::{Mail, Type},
     utils::spawn_task_and_swallow_log_errors,
@@ -41,28 +40,33 @@ lazy_static! {
 }
 
 pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Result<()> {
+    // Stream reader and writer for SSE notifications
     let sse_stream = BroadcastChannel::new();
 
     // Process mails that are received by the SMTP side
     let sse_tx_stream = sse_stream.clone();
     spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
+        // Increment ARC counter use
         let mails = Arc::clone(&MAILS);
+        // To do on each received new mail
         while let Some(mail) = rx_mails.next().await {
             info!(">>> Received new mail: {:?}", mail);
+            // Append the mail to the list
+            mails.write().await.insert(mail.get_id(), mail.clone());
             // Notify javascript side by SSE
-            match sse_tx_stream.send(&SseEvt::NewMail(mail.clone())).await {
+            match sse_tx_stream.send(&SseEvt::NewMail(mail)).await {
                 Ok(_) => trace!(">>> New mail notification sent to channel"),
                 Err(e) => trace!(">>> Err new mail notification to channel: {:?}", e),
             }
-            mails.write().await.insert(mail.get_id(), mail);
         }
-        Ok(())
+        unreachable!()
     });
 
     // Noop consumer to empty the ctream
     let mut sse_noop_stream = sse_stream.clone();
     spawn_task_and_swallow_log_errors("Task: Noop stream emptier".into(), async move {
         loop {
+            trace!("Consume SSE notification stream");
             // Do nothing, it's just to empty the stream
             sse_noop_stream.next().await;
         }
@@ -102,18 +106,15 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     app.at("/mail/:id").get(|req: Request<State>| async move {
         if let Some(mail) = get_mail(&req).await? {
             let obj = json!({
-                "headers": mail
-                    .get_headers()
-                    .iter()
-                    .map(|header| decode_string(header))
-                    .collect::<Vec<_>>(),
-                "raw": mail.get_headers().clone(),
+                "headers": mail                    .get_headers(HeaderRepresentation::Humanized),
+                "raw": mail.get_headers(HeaderRepresentation::Raw),
                 "data": mail.get_text().unwrap().clone(),
             });
             return Ok(Body::from_json(&obj).unwrap().into());
         }
         Ok(Response::new(StatusCode::NotFound))
     });
+    // Get mail in text format
     app.at("/mail/:id/text")
         .get(|req: Request<State>| async move {
             if let Some(mail) = get_mail(&req).await? {
@@ -125,6 +126,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
             }
             Ok(Response::new(StatusCode::NotFound))
         });
+    // Get mail in html format
     app.at("/mail/:id/html")
         .get(|req: Request<State>| async move {
             if let Some(mail) = get_mail(&req).await? {
@@ -136,18 +138,15 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
             }
             Ok(Response::new(StatusCode::NotFound))
         });
+    // Get RAW format mail
     app.at("/mail/:id/source")
         .get(|req: Request<State>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 if let Some(raw) = mail.get_data(&Type::Raw) {
-                    let reg = Regex::new(
-                        "(?P<headers>(?:[^\r\n]+\r?\n)*[^\r\n]+)\r?\n\r?\n(?P<content>.*)",
-                    )?;
-                    let caps = reg.captures(raw).unwrap();
-                    let (headers, content) = (caps.name("headers"), caps.name("content"));
+                    let (headers, body) = Mail::split_header_body(raw);
                     return Ok(Body::from_json(&json!({
-                        "headers": headers.unwrap().as_str(),
-                        "content": content.unwrap().as_str(),
+                        "headers": headers,
+                        "content": body,
                     }))?
                     .into());
                 }
@@ -155,12 +154,13 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
             Ok(Response::new(StatusCode::NotFound))
         });
 
-    // Remove
+    // Remove all mails
     app.at("/remove/all").get(|_req| async move {
         let mails = Arc::clone(&MAILS);
         mails.write().await.clear();
         Ok("OK")
     });
+    // Remove a mail by id
     app.at("/remove/:id").get(|req: Request<State>| async move {
         let id = req.param("id")?;
         if let Ok(id) = Ulid::from_string(id) {
@@ -178,6 +178,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     // SSE stream
     app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
 
+    // Bind ports
     let mut listener = app
         .bind(
             format!("localhost:{}", port)
@@ -186,58 +187,80 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
                 .collect::<Vec<_>>(),
         )
         .await?;
+    // Display binding ports
     for info in listener.info().iter() {
         info!("HTTP listening on {}", info);
     }
+    // Accept connections
     listener.accept().await?;
-    Ok(())
+
+    unreachable!()
 }
 
+/// Retrieve a mail from the the request, extracting the ID
 async fn get_mail(req: &Request<State>) -> tide::Result<Option<Mail>> {
+    // Extract the ID
     let id = req.param("id")?;
-    if let Ok(id) = Ulid::from_string(id) {
+    // Convert ID string to Ulid
+    Ok(if let Ok(id) = Ulid::from_string(id) {
+        // Get mails pool
         let mails = Arc::clone(&MAILS);
+        // Try to retrieve the mail from the ID
         let mail = mails.read().await.get(&id).cloned();
         trace!("mail with id {} found {:?}", id, mail);
-        return Ok(mail);
-    }
-    trace!("mail with id not found {}", id);
-    Ok(None)
+        mail
+    } else {
+        trace!("mail with id not found {}", id);
+        None
+    })
 }
 
+/// Generate a Response based on the name of the asset and the mime type  
 fn send_asset(req: Request<State>, name: &str, mime: Mime) -> Response {
+    // Look if the response can be compressed in deflate, or not
     let compressed = if let Some(header_value) = req.header(headers::ACCEPT_ENCODING) {
         header_value.get(0).unwrap().as_str().contains("deflate")
     } else {
         false
     };
+    // Retrieve the asset, either integrated during release compilation, or read from filesystem if it's debug build
     let content = Asset::get(name).unwrap();
+    // If compression if available, ...
     let content = if compressed {
+        // ... do nothing
         content
     } else {
+        // ... uncompress the file content
         let uncompressed = miniz_oxide::inflate::decompress_to_vec(&content[..]).unwrap();
         Cow::Owned(uncompressed)
     };
     debug!("content_len: {:?}", content.len());
 
+    // Build the Response
     let response = Response::builder(StatusCode::Ok)
+        // specify the mime type
         .content_type(mime)
+        // then the file length
         .header(headers::CONTENT_LENGTH, content.len().to_string());
+    // If compression enabled, add the header to response
     let response = if compressed {
         debug! {"using deflate compression output"};
         response.header(headers::CONTENT_ENCODING, "deflate")
     } else {
         response
     };
+    // If the last modified date is available, add the content to the header
     let response = if let Some(modif) = Asset::modif(name) {
         response.header(headers::LAST_MODIFIED, modif)
     } else {
         response
     };
 
+    // Return the Response with content
     response.body(&*content).build()
 }
 
+// Mail summarized
 #[derive(Debug, Serialize)]
 struct MailShort {
     id: String,

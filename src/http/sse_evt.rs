@@ -6,6 +6,7 @@ use ulid::Ulid;
 
 use crate::{http::MailShort, mail::Mail};
 
+/// Events that can be sent to SSE
 #[derive(Clone, Debug)]
 pub enum SseEvt {
     NewMail(Mail),
@@ -13,6 +14,7 @@ pub enum SseEvt {
     Ping,
 }
 
+/// Data that can be sent to client browsers with SSE
 #[derive(Debug)]
 pub struct SseData<'a> {
     pub name: &'a str,
@@ -20,6 +22,7 @@ pub struct SseData<'a> {
     pub data: Cow<'a, str>,
 }
 
+/// Convert from SseEvt to SseData
 impl<'a> From<SseEvt> for SseData<'a> {
     fn from(sse_evt: SseEvt) -> Self {
         match sse_evt {

@@ -15,43 +15,54 @@ use syn::{export::TokenStream2, Data, DeriveInput, Fields, Ident, Lit, LitByteSt
 fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
     let mut match_values = Vec::new();
     let mut modified_values = Vec::new();
-    let mut list_values = Vec::new();
 
+    // For each file in {folder}
     for entry in fs::read_dir(folder_path.clone()).unwrap() {
         if let Ok(entry) = entry {
+            // Only the filename
             let rel_path = entry.file_name().to_str().unwrap().to_owned();
+            // Filename with absolute path
             let full_path = std::fs::canonicalize(entry.path())
                 .unwrap()
                 .to_str()
                 .unwrap()
                 .to_owned();
 
+            // Read file
             let content = std::fs::read(full_path).unwrap();
+            // Compress file into deflate, with level = 10
             let compressed = compress_to_vec(&content, 10);
+            // Convert to type that can be used in quote!{}
             let bytes = LitByteStr::new(&compressed[..], Span::call_site());
 
+            // Add compressed bytes to list
             match_values.push(quote! {
                 #rel_path => {
                     Some(std::borrow::Cow::Borrowed(#bytes))
                 }
             });
 
+            // Add modified datetime of the file if available, current if not
             let modif = if let Ok(metadata) = entry.metadata() {
-                metadata.modified().unwrap()
+                if let Ok(modified) = metadata.modified() {
+                    modified
+                } else {
+                    SystemTime::now()
+                }
             } else {
                 SystemTime::now()
             };
+            // Convert to desired format
             let modif: DateTime<Utc> = DateTime::from(modif);
             let modif = modif.format("%a, %d %b %Y %T GMT").to_string();
             modified_values.push(quote! {
                 #rel_path => {Some(std::borrow::Cow::from(#modif))}
             });
-
-            list_values.push(rel_path);
         }
     }
 
     quote! {
+        // Release build
         #[cfg(not(debug_assertions))]
         impl #ident {
             pub fn get(file_path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
@@ -69,6 +80,7 @@ fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
             }
         }
 
+        // Debug build
         #[cfg(debug_assertions)]
         impl #ident {
             pub fn get(file_path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
