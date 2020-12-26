@@ -112,7 +112,9 @@
         const CloseSourceMail = (state) => ({...state, rawMail: false})
 
         // Update mail displayed at the right side
-        const MailDetail = (state, mail) => ({...state, fetching: false, mail})
+        const MailDetail = (state, mail) => mail instanceof Response
+            ? {...state, fetching: false, mails: state.mails.filter(mail => mail.id !== state.id)}
+            : {...state, fetching: false, mail}
         // Retrieve the mail details from the selection on the left
         const GetMailDetail = (state, event) => {
             const source = target =>
