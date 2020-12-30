@@ -14,32 +14,51 @@ proc-macro = true
 name = "mailcatcher"
 path = "src/main.rs"
 
-[dependencies]
-async-channel = "1.5.1"
-broadcaster = "1.0.0"
-encoding = "0.2.33"
-env_logger = "0.8.2"
-fnv = "1.0.7"
-futures = "0.3.8"
-lazy_static = "1.4.0"
-log = "0.4.11"
-miniz_oxide = "0.4.3"
-quote = "1"
-serde = "1.0.117"
-#sled = "0.34"
-syn = "1"
-ulid = "0.4.1"
-
 [dependencies.async-std]
-version = "1.7.0"
-#features = ["unstable"]
+version = "1.8.0"
+default-features = true
+features = ["unstable"]
 
 [dependencies.base64]
 version = "0.13.0"
 default-features = false
 
+[dependencies.broadcaster]
+version = "1.0.0"
+
 [dependencies.chrono]
 version = "0.4.19"
+default-features = false
+
+[dependencies.encoding]
+version = "0.2.33"
+default-features = false
+
+[dependencies.env_logger]
+version = "0.8.2"
+
+[dependencies.fnv]
+version = "1.0.7"
+
+[dependencies.futures]
+version = "0.3.8"
+default-features = false
+features = ["alloc", "std"]
+
+[dependencies.lazy_static]
+version = "1.4.0"
+default-features = false
+
+[dependencies.log]
+version = "0.4.11"
+default-features = false
+
+[dependencies.miniz_oxide]
+version = "0.4.3"
+default-features = false
+
+[dependencies.quote]
+version = "1"
 default-features = false
 
 [dependencies.regex]
@@ -48,10 +67,27 @@ default-features = false
 # feature std needed by regex
 features = ["std"]
 
+[dependencies.serde]
+version = "1.0.118"
+default-features = false
+
+[dependencies.sled]
+version = "0.34"
+optional = true
+default-features = false
+
+[dependencies.syn]
+version = "1"
+default-features = false
+
 [dependencies.tide]
 version = "0.15.0"
 default-features = false
 features = ["h1-server"]
+
+[dependencies.ulid]
+version = "0.4.1"
+default-features = false
 
 [profile.release]
 lto = "thin"

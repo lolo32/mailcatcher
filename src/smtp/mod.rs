@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
-use async_channel::Sender;
 use async_std::{
+    channel::Sender,
     io::BufReader,
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
 };
@@ -24,19 +24,19 @@ const MSG_503_BAD_SEQUENCE: &[u8] = b"503 Bad sequence of commands\r\n";
 pub async fn serve_smtp(
     port: u16,
     server_name: &str,
-    mails: Sender<Mail>,
+    mails_broker: Sender<Mail>,
     use_starttls: bool,
 ) -> crate::Result<()> {
     // Convert port to socket address
-    let addr: Vec<_> = format!("localhost:{}", port)
+    let addr = format!("localhost:{}", port)
         .to_socket_addrs()
         .await?
-        .collect();
+        .collect::<Vec<_>>();
 
     // For each socket address IPv4/IPv6 ...
     addr.iter()
         // ... spawn a handler to process incoming connection
-        .map(|a| handle(a, server_name, mails.clone(), use_starttls))
+        .map(|a| accept_loop(a, server_name, mails_broker.clone(), use_starttls))
         .collect::<FuturesUnordered<_>>()
         .skip_while(|r| future::ready(r.is_ok()))
         .take(1)
@@ -50,10 +50,10 @@ pub async fn serve_smtp(
 }
 
 /// Handler that deals to a single socket address
-async fn handle(
+async fn accept_loop(
     addr: &SocketAddr,
     server_name: &str,
-    mails: Sender<Mail>,
+    mails_broker: Sender<Mail>,
     use_starttls: bool,
 ) -> crate::Result<()> {
     // Bind to the address
@@ -73,12 +73,12 @@ async fn handle(
         // Spawn local processing
         spawn_task_and_swallow_log_errors(
             format!("Task: TCP transmission {}", conn),
-            smtp_handle(
+            connection_loop(
                 stream,
                 conn,
                 server_name.to_string(),
                 use_starttls,
-                mails.clone(),
+                mails_broker.clone(),
             ),
         );
     }
@@ -87,12 +87,12 @@ async fn handle(
 }
 
 /// Deals with each new connection
-async fn smtp_handle(
+async fn connection_loop(
     stream: TcpStream,
     conn: ConnectionInfo,
     server_name: String,
     use_starttls: bool,
-    mails: Sender<Mail>,
+    mails_broker: Sender<Mail>,
 ) -> crate::Result<()> {
     // Initialize the SMTP connection
     let mut smtp = Smtp::new(&stream, server_name, use_starttls);
@@ -107,14 +107,15 @@ async fn smtp_handle(
     // Begin command loop
     while let Some(line) = lines.next().await {
         // Process a new command line
+        let line = line?;
         // Identify the action
-        let action = smtp.process_line(Cow::Owned(line?));
+        let action = smtp.process_line(Cow::Owned(line));
         trace!("{:?}", action);
         // Process the action
         let mail = smtp.process_command(&action).await?;
         // If a mail has been emitted, send it to the HTTP side
         if let Some(mail) = mail {
-            mails.send(mail).await?;
+            mails_broker.send(mail).await?;
         };
         // If the command ask to quit, exit the command processing
         if let Command::Quit = action {

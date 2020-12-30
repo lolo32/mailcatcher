@@ -3,8 +3,7 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 
-use async_std::task;
-use futures::try_join;
+use async_std::{channel, prelude::FutureExt, task};
 
 mod encoding;
 mod http;
@@ -36,14 +35,14 @@ async fn main_fut() -> crate::Result<()> {
     );
 
     // Channels used to notify a new mail arrived in SMTP side to HTTP side
-    let (tx_mails, rx_mails) = async_channel::unbounded();
+    let (tx_mails, rx_mails) = channel::unbounded();
 
     // Starting SMTP side
     let s = smtp::serve_smtp(port_smtp, my_name, tx_mails, use_starttls);
     // Starting HTTP side
     let h = http::serve_http(port_http, rx_mails);
     // Waiting for both to complete
-    let _ = try_join![s, h];
+    s.try_join(h).await?;
 
     unreachable!()
 }

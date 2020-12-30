@@ -1,7 +1,8 @@
+use std::borrow::Cow;
 use std::time::Duration;
 
-use async_channel::Receiver;
 use async_std::{
+    channel::Receiver,
     net::ToSocketAddrs,
     sync::{Arc, RwLock},
     task,
@@ -18,21 +19,22 @@ use tide::{
 };
 use ulid::Ulid;
 
-use crate::mail::HeaderRepresentation;
 use crate::{
     http::{asset::Asset, sse_evt::SseEvt},
-    mail::{Mail, Type},
+    mail::{HeaderRepresentation, Mail, Type},
     utils::spawn_task_and_swallow_log_errors,
 };
-use std::borrow::Cow;
 
 mod asset;
 mod sse;
 mod sse_evt;
 
 #[derive(Clone)]
-pub struct State {
-    sse_stream: BroadcastChannel<SseEvt, UnboundedSender<SseEvt>, UnboundedReceiver<SseEvt>>,
+pub struct State<T>
+where
+    T: Send + Clone + 'static,
+{
+    sse_stream: BroadcastChannel<T, UnboundedSender<T>, UnboundedReceiver<T>>,
 }
 
 lazy_static! {
@@ -56,7 +58,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
             // Notify javascript side by SSE
             match sse_tx_stream.send(&SseEvt::NewMail(mail)).await {
                 Ok(_) => trace!(">>> New mail notification sent to channel"),
-                Err(e) => trace!(">>> Err new mail notification to channel: {:?}", e),
+                Err(e) => error!(">>> Err new mail notification to channel: {:?}", e),
             }
         }
         unreachable!()
@@ -72,7 +74,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
         }
     });
 
-    // Noop consumer to empty the ctream
+    // Task sending ping to SSE terminators
     let sse_tx_ping_stream = sse_stream.clone();
     spawn_task_and_swallow_log_errors("Task: Ping SSE sender".into(), async move {
         loop {
@@ -87,60 +89,66 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     let mut app = tide::with_state(state);
 
     app.at("/")
-        .get(|req: Request<State>| async { Ok(send_asset(req, "home.html", mime::HTML)) });
+        .get(|req: Request<State<SseEvt>>| async { Ok(send_asset(req, "home.html", mime::HTML)) });
     app.at("/hyperapp.js")
-        .get(|req: Request<State>| async { Ok(send_asset(req, "hyperapp.js", mime::JAVASCRIPT)) });
+        .get(|req: Request<State<SseEvt>>| async {
+            Ok(send_asset(req, "hyperapp.js", mime::JAVASCRIPT))
+        });
     app.at("/w3.css")
-        .get(|req: Request<State>| async { Ok(send_asset(req, "w3.css", mime::CSS)) });
+        .get(|req: Request<State<SseEvt>>| async { Ok(send_asset(req, "w3.css", mime::CSS)) });
 
     // Get all mail list
     app.at("/mails").get(|_req| async move {
         let mails = Arc::clone(&MAILS);
-        let resp: Vec<_> = { mails.read().await.values() }
+        let resp = { mails.read().await.values() }
             .map(MailShort::new)
-            .collect();
+            .collect::<Vec<_>>();
 
         Body::from_json(&resp)
     });
     // Get mail details
-    app.at("/mail/:id").get(|req: Request<State>| async move {
-        if let Some(mail) = get_mail(&req).await? {
-            let obj = json!({
-                "headers": mail                    .get_headers(HeaderRepresentation::Humanized),
-                "raw": mail.get_headers(HeaderRepresentation::Raw),
-                "data": mail.get_text().unwrap().clone(),
-            });
-            return Ok(Body::from_json(&obj).unwrap().into());
-        }
-        Ok(Response::new(StatusCode::NotFound))
-    });
+    app.at("/mail/:id")
+        .get(|req: Request<State<SseEvt>>| async move {
+            if let Some(mail) = get_mail(&req).await? {
+                let obj = json!({
+                    "headers": mail.get_headers(HeaderRepresentation::Humanized),
+                    "raw": mail.get_headers(HeaderRepresentation::Raw),
+                    "data": mail.get_text().unwrap().clone(),
+                });
+                Ok(Body::from_json(&obj).unwrap().into())
+            } else {
+                Ok(Response::new(StatusCode::NotFound))
+            }
+        });
     // Get mail in text format
     app.at("/mail/:id/text")
-        .get(|req: Request<State>| async move {
+        .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
-                return Ok(Body::from_string(match mail.get_text() {
+                Ok(Body::from_string(match mail.get_text() {
                     Some(text) => text.to_string(),
                     None => "".to_string(),
                 })
-                .into());
+                .into())
+            } else {
+                Ok(Response::new(StatusCode::NotFound))
             }
-            Ok(Response::new(StatusCode::NotFound))
         });
     // Get mail in html format
     app.at("/mail/:id/html")
-        .get(|req: Request<State>| async move {
+        .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 let s = match mail.get_html() {
                     Some(text) => &text[..],
                     None => "",
                 };
-                return Ok(Body::from_bytes(s.as_bytes().to_vec()).into());
+                Ok(Body::from_bytes(s.as_bytes().to_vec()).into())
+            } else {
+                Ok(Response::new(StatusCode::NotFound))
             }
-            Ok(Response::new(StatusCode::NotFound))
         });
     // Get RAW format mail
     app.at("/mail/:id/source")
-        .get(|req: Request<State>| async move {
+        .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 if let Some(raw) = mail.get_data(&Type::Raw) {
                     let (headers, body) = Mail::split_header_body(raw);
@@ -161,19 +169,20 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
         Ok("OK")
     });
     // Remove a mail by id
-    app.at("/remove/:id").get(|req: Request<State>| async move {
-        let id = req.param("id")?;
-        if let Ok(id) = Ulid::from_string(id) {
-            let mails = Arc::clone(&MAILS);
-            let mail = mails.write().await.remove(&id);
-            if mail.is_some() {
-                info!("mail removed {:?}", mail);
-                req.state().sse_stream.send(&SseEvt::DelMail(id)).await?;
-                return Ok("OK".into());
+    app.at("/remove/:id")
+        .get(|req: Request<State<SseEvt>>| async move {
+            let id = req.param("id")?;
+            if let Ok(id) = Ulid::from_string(id) {
+                let mails = Arc::clone(&MAILS);
+                let mail = mails.write().await.remove(&id);
+                if mail.is_some() {
+                    info!("mail removed {:?}", mail);
+                    req.state().sse_stream.send(&SseEvt::DelMail(id)).await?;
+                    return Ok("OK".into());
+                }
             }
-        }
-        Ok(Response::new(StatusCode::NotFound))
-    });
+            Ok(Response::new(StatusCode::NotFound))
+        });
 
     // SSE stream
     app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
@@ -198,7 +207,10 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
 }
 
 /// Retrieve a mail from the the request, extracting the ID
-async fn get_mail(req: &Request<State>) -> tide::Result<Option<Mail>> {
+async fn get_mail<T>(req: &Request<State<T>>) -> tide::Result<Option<Mail>>
+where
+    T: Send + Clone + 'static,
+{
     // Extract the ID
     let id = req.param("id")?;
     // Convert ID string to Ulid
@@ -216,7 +228,10 @@ async fn get_mail(req: &Request<State>) -> tide::Result<Option<Mail>> {
 }
 
 /// Generate a Response based on the name of the asset and the mime type  
-fn send_asset(req: Request<State>, name: &str, mime: Mime) -> Response {
+fn send_asset<T>(req: Request<State<T>>, name: &str, mime: Mime) -> Response
+where
+    T: Send + Clone + 'static,
+{
     // Look if the response can be compressed in deflate, or not
     let compressed = if let Some(header_value) = req.header(headers::ACCEPT_ENCODING) {
         header_value.get(0).unwrap().as_str().contains("deflate")

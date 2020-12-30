@@ -1,9 +1,12 @@
 use tide::{sse::Sender, Request};
 
-use super::{sse_evt::SseData, State};
+use super::{
+    sse_evt::{SseData, SseEvt},
+    State,
+};
 
 /// Handle Server-Sent Events
-pub async fn handle_sse(req: Request<State>, sender: Sender) -> tide::Result<()> {
+pub async fn handle_sse(req: Request<State<SseEvt>>, sender: Sender) -> tide::Result<()> {
     use futures::StreamExt;
 
     // Retrieve the SSE stream notifications
