@@ -3,6 +3,8 @@ use ulid::Ulid;
 
 use crate::encoding::decode_string;
 
+pub mod broker;
+
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub enum Type {
     // Raw mail content
