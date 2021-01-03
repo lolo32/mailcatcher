@@ -23,7 +23,7 @@ pub async fn handle_sse(req: Request<State<SseEvt>>, sender: Sender) -> tide::Re
         let data = SseData::from(mail_evt);
         trace!("data to send: {:?}", data);
         // Send the generated data
-        let sent = sender.send(data.name, data.data.as_ref(), data.id).await;
+        let sent = sender.send(data.name, data.data.as_ref(), None).await;
         // Check the send result, exit of the SSE if any error, generally from a disconnection
         if sent.is_err() {
             warn!("Err, disconnected: {:?}", sent);

@@ -6,8 +6,6 @@
     <link href="w3.css" rel="stylesheet">
     <style>
         .mail {cursor: pointer}
-        .to:before {content: "To: "}
-        .subject:before {content: "Subj: "}
         .since, .size {font-style: italic}
     </style>
     <script type="module">
@@ -94,6 +92,8 @@
             ]
         }
 
+        const ClearMails = (state) => [{...state, fetching: true}, request({url: "/remove/all", action: MailRemoved})]
+
         // Display mail in raw format
         const MailRaw = (state, rawMail) => ({...state, fetching: false, rawMail})
         // Retrieve the mail in raw format
@@ -113,7 +113,11 @@
 
         // Update mail displayed at the right side
         const MailDetail = (state, mail) => mail instanceof Response
-            ? {...state, fetching: false, mails: state.mails.filter(mail => mail.id !== state.id)}
+            ? {
+                ...state,
+                fetching: false,
+                mails: state.mails.filter(mail => mail.id !== state.id),
+            }
             : {...state, fetching: false, mail}
         // Retrieve the mail details from the selection on the left
         const GetMailDetail = (state, event) => {
@@ -177,9 +181,9 @@
                 ],
             }, [
                 // Recipient
-                h("div", {class: "to"}, text(mail.to.join(", "))),
+                h("div", {}, text(`To: ${mail.to.join(", ")}`)),
                 // Subject
-                h("div", {class: "subject"}, text(mail.subject)),
+                h("div", {}, text(`Sub: ${mail.subject}`)),
                 // Details
                 h("div", {class: "w3-row"}, [
                     // Date
@@ -222,19 +226,23 @@
                         {class: ["w3-sidebar", "w3-bar-block", "w3-card-4", "w3-theme-l5"], style: {width: "25%"}}, [
                             h("div", {}, [
                                 // Toggle the SSE ON or OFF
-                                h("button", {class: ["w3-theme-action", "w3-btn"], onclick: ToggleSse},
-                                    text(`sse:${sse}`)),
+                                h("button",
+                                    {class: ["w3-theme-d1", "w3-btn"], onclick: ToggleSse},
+                                    text(sse ? "📶" : "📵")
+                                ),
                                 text(" "),
                                 // Manual refresh mail list
-                                h("button", {class: ["w3-theme-action", "w3-btn"], onclick: GetMailList},
-                                    text("Update")),
+                                h("button", {class: ["w3-theme-d1", "w3-btn"], onclick: GetMailList}, text("📩")),
+                                text(" "),
+                                // Empty list
+                                h("button", {class: ["w3-theme-d1", "w3-btn"], onclick: ClearMails}, text("🔥")),
                             ]),
                             // List of mails
                             h("ul", {class: ["w3-small", "w3-padding-16", "w3-ul", "w3-border-bottom"]},
                                 mails.length
-                                // Display mail brief content list if there is mails
+                                    // Display mail brief content list if there is mails
                                 ? mails.sort((a, b) => b.date - a.date).map(mail => display_mail(id, mail))
-                                // Display "no messages" if list is empty
+                                    // Display "no messages" if list is empty
                                 : h("li", {class: ["w3-row", "w3-padding-small", "w3-center", "w3-medium"]},
                                     text("No messages")),
                             ),

@@ -2,9 +2,8 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use async_std::{
-    channel::{self, Receiver},
+    channel::{self, Receiver, Sender},
     net::ToSocketAddrs,
-    prelude::FutureExt,
     task,
 };
 use broadcaster::BroadcastChannel;
@@ -14,18 +13,16 @@ use futures::{
 };
 use tide::{
     http::{headers, mime, Mime},
-    prelude::*,
+    prelude::{json, Listener},
     Body, Request, Response, StatusCode,
 };
 use ulid::Ulid;
 
-use crate::mail::broker::{mail_broker, MailEvt};
 use crate::{
     http::{asset::Asset, sse_evt::SseEvt},
-    mail::{HeaderRepresentation, Mail, Type},
+    mail::{broker::MailEvt, HeaderRepresentation, Mail, Type},
     utils::spawn_task_and_swallow_log_errors,
 };
-use async_std::channel::Sender;
 
 mod asset;
 mod sse;
@@ -40,23 +37,27 @@ where
     mail_broker: Sender<MailEvt>,
 }
 
-pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Result<()> {
+pub async fn serve_http(
+    port: u16,
+    mail_broker: Sender<MailEvt>,
+    mut rx_mails: Receiver<Mail>,
+) -> crate::Result<()> {
     // Stream reader and writer for SSE notifications
     let sse_stream = BroadcastChannel::new();
 
-    let (mail_broker_sender, mail_broker_receiver) = channel::unbounded();
-
-    let mail_broker = mail_broker(sse_stream.clone(), mail_broker_receiver);
-
-    let mail_broker_sender_new = mail_broker_sender.clone();
+    let sse_stream_new_mail = sse_stream.clone();
     spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
-        // To do on each received new mail
-        while let Some(mail) = rx_mails.next().await {
-            info!(">>> Received new mail: {:?}", mail);
-            // Append the mail to the list
-            mail_broker_sender_new.send(MailEvt::NewMail(mail)).await?;
+        loop {
+            // To do on each received new mail
+            if let Some(mail) = rx_mails.next().await {
+                info!(">>> Received new mail: {:?}", mail);
+                // Append the mail to the list
+                match sse_stream_new_mail.send(&SseEvt::NewMail(mail)).await {
+                    Ok(_) => trace!(">>> New mail notification sent to channel"),
+                    Err(e) => error!(">>> Err new mail notification to channel: {:?}", e),
+                }
+            }
         }
-        unreachable!()
     });
 
     // Noop consumer to empty the ctream
@@ -82,7 +83,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
 
     let state = State {
         sse_stream,
-        mail_broker: mail_broker_sender,
+        mail_broker,
     };
     let mut app = tide::with_state(state);
 
@@ -103,10 +104,10 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
 
             let mut resp = Vec::new();
             while let Some(mail) = r.next().await {
-                resp.push(MailShort::new(&mail));
+                resp.push(mail.summary());
             }
 
-            Body::from_json(&resp)
+            Body::from_json(&json!(&resp))
         });
     // Get mail details
     app.at("/mail/:id")
@@ -167,7 +168,14 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
     // Remove all mails
     app.at("/remove/all")
         .get(|req: Request<State<SseEvt>>| async move {
-            req.state().mail_broker.send(MailEvt::RemoveAll).await?;
+            let (s, mut r) = channel::unbounded();
+            req.state().mail_broker.send(MailEvt::RemoveAll(s)).await?;
+            while let Some(id) = r.next().await {
+                match req.state().sse_stream.send(&SseEvt::DelMail(id)).await {
+                    Ok(_) => trace!("Success notification of removal: {}", id.to_string()),
+                    Err(e) => error!("Notification of removal {}: {:?}", id.to_string(), e),
+                }
+            }
             Ok("OK")
         });
     // Remove a mail by id
@@ -176,7 +184,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
             let id = req.param("id")?;
             if let Ok(id) = Ulid::from_string(id) {
                 let (s, mut r) = channel::bounded(1);
-                req.state().mail_broker.send(MailEvt::Remove(id, s)).await?;
+                req.state().mail_broker.send(MailEvt::Remove(s, id)).await?;
                 let mail = r.next().await.unwrap();
                 if mail.is_some() {
                     info!("mail removed {:?}", mail);
@@ -204,7 +212,7 @@ pub async fn serve_http(port: u16, mut rx_mails: Receiver<Mail>) -> crate::Resul
         info!("HTTP listening on {}", info);
     }
     // Accept connections
-    let _ = listener.accept().join(mail_broker).await;
+    listener.accept().await?;
 
     unreachable!()
 }
@@ -221,7 +229,7 @@ where
         let (s, mut r) = channel::bounded(1);
         req.state()
             .mail_broker
-            .send(MailEvt::GetMail(id, s))
+            .send(MailEvt::GetMail(s, id))
             .await?;
         // Get mails pool
         let mail = r.next().await.unwrap();
@@ -233,7 +241,7 @@ where
     })
 }
 
-/// Generate a Response based on the name of the asset and the mime type  
+/// Generate a Response based on the name of the asset and the mime type
 fn send_asset<T>(req: Request<State<T>>, name: &str, mime: Mime) -> Response
 where
     T: Send + Clone + 'static,
@@ -279,28 +287,4 @@ where
 
     // Return the Response with content
     response.body(&*content).build()
-}
-
-// Mail summarized
-#[derive(Debug, Serialize)]
-struct MailShort {
-    id: String,
-    from: String,
-    to: Vec<String>,
-    subject: String,
-    date: i64,
-    size: usize,
-}
-
-impl MailShort {
-    pub fn new(mail: &Mail) -> Self {
-        Self {
-            id: mail.get_id().to_string(),
-            from: mail.from().to_string(),
-            to: mail.to().iter().map(|s| s.to_string()).collect(),
-            subject: mail.get_subject().to_string(),
-            date: mail.get_date().timestamp(),
-            size: mail.get_size(),
-        }
-    }
 }

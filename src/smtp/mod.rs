@@ -10,7 +10,11 @@ use futures::{
     {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
 
-use crate::{mail::Mail, smtp::command::Command, utils::*};
+use crate::{
+    mail::Mail,
+    smtp::command::Command,
+    utils::{spawn_task_and_swallow_log_errors, ConnectionInfo},
+};
 
 mod command;
 
@@ -66,24 +70,24 @@ async fn accept_loop(
     info!("SMTP listening on {:?}", listener.local_addr()?);
 
     // For each new connection
-    while let Some(stream) = incoming.next().await {
-        let stream = stream?;
-        let conn = ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
-        info!("Accepting new connection from: {}", stream.peer_addr()?);
-        // Spawn local processing
-        spawn_task_and_swallow_log_errors(
-            format!("Task: TCP transmission {}", conn),
-            connection_loop(
-                stream,
-                conn,
-                server_name.to_string(),
-                use_starttls,
-                mails_broker.clone(),
-            ),
-        );
+    loop {
+        if let Some(stream) = incoming.next().await {
+            let stream = stream?;
+            let conn = ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
+            info!("Accepting new connection from: {}", stream.peer_addr()?);
+            // Spawn local processing
+            spawn_task_and_swallow_log_errors(
+                format!("Task: TCP transmission {}", conn),
+                connection_loop(
+                    stream,
+                    conn,
+                    server_name.to_string(),
+                    use_starttls,
+                    mails_broker.clone(),
+                ),
+            );
+        }
     }
-
-    unreachable!()
 }
 
 /// Deals with each new connection
@@ -327,9 +331,6 @@ impl<'a> Smtp<'a> {
             }
             // A line containing only "." specified, so mail is complete
             Command::DataEnd => {
-                // TODO:
-                warn!("Need to implement storage!!!");
-                //smtp.save();
                 trace!("{}", self.data);
                 // Instantiate a new mail
                 let mail = Mail::new(self.addr_from.as_ref().unwrap(), &self.addr_to, &self.data);

@@ -9,8 +9,10 @@ use std::{env, fs, path::Path, time::SystemTime};
 
 use chrono::{DateTime, Utc};
 use miniz_oxide::deflate::compress_to_vec;
-use syn::export::Span;
-use syn::{export::TokenStream2, Data, DeriveInput, Fields, Ident, Lit, LitByteStr, Meta};
+use syn::{
+    export::{Span, TokenStream2},
+    Data, DeriveInput, Fields, Ident, Lit, LitByteStr, Meta,
+};
 
 fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
     let mut match_values = Vec::new();

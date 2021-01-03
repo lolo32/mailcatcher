@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use tide::prelude::json;
 use ulid::Ulid;
 
 use crate::encoding::decode_string;
@@ -190,6 +191,18 @@ impl Mail {
     /// Retrieve the data type part of the mail
     pub fn get_data(&self, type_: &Type) -> Option<&String> {
         self.data.get(type_)
+    }
+
+    pub fn summary(&self) -> String {
+        json!({
+            "id": self.get_id().to_string(),
+            "from": self.from().to_string(),
+            "to": self.to().iter().map(|s| s.to_string()).collect::<Vec<String>>(),
+            "subject": self.get_subject().to_string(),
+            "date": self.get_date().timestamp(),
+            "size": self.get_size(),
+        })
+        .to_string()
     }
 }
 
