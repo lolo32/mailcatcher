@@ -87,3 +87,49 @@ impl fmt::Display for ConnectionInfo {
         )
     }
 }
+
+pub fn wrap(text: &str, column: usize) -> String {
+    let mut pos = 0;
+
+    let mut res = String::new();
+
+    while pos < text.len() {
+        let start = pos;
+        pos += column;
+        if pos > text.len() {
+            res.push_str("\r\n");
+            res.push_str(text.get(start..).unwrap());
+            break;
+        }
+
+        if !res.ends_with("\r\n") {
+            res.push_str("\r\n");
+        }
+        let slice = text.get(start..pos).unwrap_or("");
+        if let Some(i) = slice.find("\r\n") {
+            pos = start + i + 2;
+            res.push_str(slice.get(0..(i + 2)).unwrap());
+        } else {
+            while text.get((pos - 1)..pos) != Some(" ") {
+                pos -= 1;
+            }
+            res.push_str(text.get(start..pos).unwrap());
+        }
+    }
+
+    res.get(2..).unwrap_or("").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wrap() {
+        let txt = wrap(
+            "CHAPTER I\r\nDown the Rabbit-Hole\r\n\r\nAlice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do: once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it, `and what is the use of a book,' thought Alice `without pictures or conversation?'\r\n\r\nSo she was considering in her own mind (as well as she could, for the hot day made her feel very sleepy and stupid), whether the pleasure of making a daisy-chain would be worth the trouble of getting up and picking the daisies, when suddenly a White Rabbit with pink eyes ran close by her.\r\n\r\n  -- ALICE'S ADVENTURES IN WONDERLAND by Lewis Carroll",
+            72,
+        );
+        assert_eq!(txt, "CHAPTER I\r\nDown the Rabbit-Hole\r\n\r\nAlice was beginning to get very tired of sitting by her sister on the \r\nbank, and of having nothing to do: once or twice she had peeped into \r\nthe book her sister was reading, but it had no pictures or \r\nconversations in it, `and what is the use of a book,' thought Alice \r\n`without pictures or conversation?'\r\n\r\nSo she was considering in her own mind (as well as she could, for the \r\nhot day made her feel very sleepy and stupid), whether the pleasure of \r\nmaking a daisy-chain would be worth the trouble of getting up and \r\npicking the daisies, when suddenly a White Rabbit with pink eyes ran \r\nclose by her.\r\n\r\n  -- ALICE'S ADVENTURES IN WONDERLAND by Lewis Carroll");
+    }
+}

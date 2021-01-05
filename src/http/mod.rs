@@ -18,6 +18,7 @@ use tide::{
 };
 use ulid::Ulid;
 
+use crate::utils::wrap;
 use crate::{
     http::{asset::Asset, sse_evt::SseEvt},
     mail::{broker::MailEvt, HeaderRepresentation, Mail, Type},
@@ -202,10 +203,8 @@ pub async fn serve_http(
     // Generate some fake mails
     app.at("/fake")
         .get(|_req: Request<State<SseEvt>>| async move {
-            use async_std::io::BufReader;
-            use async_std::net::TcpStream;
-            use chrono::offset::Utc;
-            use chrono::{DateTime, NaiveDateTime};
+            use async_std::{io::BufReader, net::TcpStream};
+            use chrono::{offset::Utc, DateTime, NaiveDateTime};
             use futures::{AsyncBufReadExt, AsyncWriteExt};
             use lipsum::{lipsum, lipsum_title, lipsum_words};
             use rand_chacha::{
@@ -213,10 +212,9 @@ pub async fn serve_http(
                 ChaCha8Rng,
             };
 
-            let ts = Utc::now().timestamp();
-            let seed = [0; 32];
-            let mut rng = ChaCha8Rng::from_seed(seed);
-            rng.set_stream(ts as u64);
+            // Initialise a PRNG based on timestamp seed
+            let mut rng = ChaCha8Rng::from_seed([0; 32]);
+            rng.set_stream(Utc::now().timestamp() as u64);
 
             let mut rnd = move |range: std::ops::Range<i64>| {
                 let val = next_u32_via_fill(&mut rng);
@@ -225,27 +223,53 @@ pub async fn serve_http(
                 range.start + (val as f64 * max as f64 / u32::MAX as f64).floor() as i64
             };
 
+            // Expeditor mail address
             let from = format!(
                 "{}@{}.{}",
                 lipsum_words(1).trim_end_matches('.'),
                 lipsum_words(1).trim_end_matches('.'),
                 lipsum_words(1).trim_end_matches('.'),
             );
+            // Recipient mail address
             let to = format!(
                 "{}@{}.{}",
                 lipsum_words(1).trim_end_matches('.'),
                 lipsum_words(1).trim_end_matches('.'),
                 lipsum_words(1).trim_end_matches('.'),
             );
+            // Mail subject
             let subject = lipsum_title();
-            let r = rnd(19..120);
-            let body = lipsum(r as usize);
-            let date = rnd(1..Utc::now().timestamp());
-            let date = NaiveDateTime::from_timestamp(date, 0);
-            let date = DateTime::<Utc>::from_utc(date, Utc);
+            // Body content
+            let body = {
+                let text = lipsum(rnd(19..120) as usize);
+                let text = text.split('.').collect::<Vec<_>>();
+                let mut text = text.iter();
+
+                let mut body = String::new();
+                body.push_str(text.next().unwrap());
+                body.push('.');
+
+                for t in text {
+                    let t = if rnd(0..10) < 6 {
+                        body.push_str("\r\n\r\n");
+                        t.trim_start()
+                    } else {
+                        t
+                    };
+                    body.push_str(t);
+                    body.push('.');
+                }
+                wrap(&body, 72)
+            };
+            // Mail Date
+            let date = {
+                let date = rnd(1..Utc::now().timestamp());
+                let date = NaiveDateTime::from_timestamp(date, 0);
+                DateTime::<Utc>::from_utc(date, Utc)
+            };
 
             let data = format!(
-                "Date: {}\r\nFrom: {}\r\nTo: {}\r\nSubject: {}\r\n\r\n{}\r\n.\r\n",
+                "Date: {}\r\nFrom: {}\r\nTo: {}\r\nSubject: {}\r\n\r\n{}",
                 date.to_rfc2822(),
                 from,
                 to,
@@ -254,6 +278,7 @@ pub async fn serve_http(
             );
             trace!("Faking new mail:\n{}", data);
 
+            // TCP stream to send the mail
             let stream = TcpStream::connect("localhost:1025").await?;
 
             let (reader, mut writer) = (stream.clone(), stream);
@@ -262,31 +287,33 @@ pub async fn serve_http(
             let mut lines = reader.lines();
 
             // Greeting
-            let _read = lines.next().await.unwrap()?;
-            let _write = writer.write_all(b"helo localhost\r\n").await?;
+            lines.next().await.unwrap()?;
+            writer.write_all(b"helo localhost\r\n").await?;
 
             // From
-            let _read = lines.next().await.unwrap()?;
-            let _write = writer
+            lines.next().await.unwrap()?;
+            writer
                 .write_all(format!("mail from:<{}>\r\n", from).as_bytes())
                 .await?;
 
             // To
-            let _read = lines.next().await.unwrap()?;
-            let _write = writer
+            lines.next().await.unwrap()?;
+            writer
                 .write_all(format!("rcpt to:<{}>\r\n", to).as_bytes())
                 .await?;
 
             // Data
-            let _read = lines.next().await.unwrap()?;
-            let _write = writer.write_all(b"data\r\n").await?;
-            let _read = lines.next().await.unwrap()?;
-            let _write = writer.write_all(data.as_bytes()).await?;
+            lines.next().await.unwrap()?;
+            writer.write_all(b"data\r\n").await?;
+            lines.next().await.unwrap()?;
+            writer
+                .write_all(format!("{}\r\n.\r\n", data).as_bytes())
+                .await?;
 
             // Quit
-            let _read = lines.next().await.unwrap()?;
-            let _write = writer.write_all(b"quit\r\n").await?;
-            let _read = lines.next().await.unwrap()?;
+            lines.next().await.unwrap()?;
+            writer.write_all(b"quit\r\n").await?;
+            lines.next().await.unwrap()?;
 
             Ok("OK")
         });
