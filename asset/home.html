@@ -92,7 +92,7 @@
             ]
         }
 
-        const ClearMails = (state) => [{...state, fetching: true}, request({url: "/remove/all", action: MailRemoved})]
+        const ClearMails = (state) => [{...state, mail: {}, fetching: true}, request({url: "/remove/all", action: MailRemoved})]
 
         // Display mail in raw format
         const MailRaw = (state, rawMail) => ({...state, fetching: false, rawMail})
