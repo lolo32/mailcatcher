@@ -80,6 +80,8 @@ features = ["std"]
 
 [dependencies.serde_json]
 version = "1.0.61"
+default-features = false
+features = ["alloc"]
 
 [dependencies.sled]
 version = "0.34"
