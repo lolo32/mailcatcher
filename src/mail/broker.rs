@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use async_std::channel::{Receiver, Sender};
 use futures::StreamExt;
 use ulid::Ulid;
@@ -22,7 +20,7 @@ pub enum MailEvt {
 
 pub async fn mail_broker(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
     // This is the mail tank
-    let mut mails: HashMap<Ulid, Mail> = Default::default();
+    let mut mails: fnv::FnvHashMap<Ulid, Mail> = Default::default();
 
     spawn_task_and_swallow_log_errors("Mail broker".to_string(), async move {
         loop {
