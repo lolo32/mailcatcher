@@ -14,6 +14,9 @@ proc-macro = true
 name = "mailcatcher"
 path = "src/main.rs"
 
+[features]
+fake = ["lipsum", "rand_chacha"]
+
 [dependencies.async-std]
 version = "1.8.0"
 default-features = true
@@ -49,6 +52,10 @@ features = ["alloc", "std"]
 version = "1.4.0"
 default-features = false
 
+[dependencies.lipsum]
+version = "0.7.0"
+optional = true
+
 [dependencies.log]
 version = "0.4.11"
 default-features = false
@@ -61,15 +68,18 @@ default-features = false
 version = "1"
 default-features = false
 
+[dependencies.rand_chacha]
+version = "0.3.0"
+optional = true
+
 [dependencies.regex]
 version = "1.4.2"
 default-features = false
 # feature std needed by regex
 features = ["std"]
 
-[dependencies.serde]
-version = "1.0.118"
-default-features = false
+[dependencies.serde_json]
+version = "1.0.61"
 
 [dependencies.sled]
 version = "0.34"
