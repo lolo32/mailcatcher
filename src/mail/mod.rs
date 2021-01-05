@@ -3,6 +3,7 @@ use tide::prelude::json;
 use ulid::Ulid;
 
 use crate::encoding::decode_string;
+use serde_json::Value;
 
 pub mod broker;
 
@@ -193,7 +194,7 @@ impl Mail {
         self.data.get(type_)
     }
 
-    pub fn summary(&self) -> String {
+    pub fn summary(&self) -> Value {
         json!({
             "id": self.get_id().to_string(),
             "from": self.from().to_string(),
@@ -202,7 +203,6 @@ impl Mail {
             "date": self.get_date().timestamp(),
             "size": self.get_size(),
         })
-        .to_string()
     }
 }
 
