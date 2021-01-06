@@ -200,8 +200,8 @@ pub async fn serve_http(
 
     #[cfg(feature = "faking")]
     // Generate some fake mails
-    app.at("/fake")
-        .get(|_req: Request<State<SseEvt>>| async move {
+    app.at("/fake/:nb")
+        .get(|req: Request<State<SseEvt>>| async move {
             use crate::utils::wrap;
             use async_std::{io::BufReader, net::TcpStream};
             use chrono::{offset::Utc, DateTime, NaiveDateTime, TimeZone};
@@ -224,91 +224,83 @@ pub async fn serve_http(
                 )
             }
 
-            // Expeditor mail address
-            let from: String = SafeEmail().fake();
-            let from_name: String = Name().fake();
-            // Recipient mail address
-            let to: String = SafeEmail().fake();
-            let to_name: String = Name().fake();
-            // Mail subject
-            let subject: Vec<String> = Words(5..10).fake();
-            let subject = make_first_uppercase(&subject.join(" "));
-            // Body content
-            let body = {
-                let mut body: Vec<String> = Paragraphs(1..8).fake();
-                body[0] = format!("Lorem ipsum dolor sit amet, {}", body[0]);
-                let body = body
-                    .iter()
-                    .map(|s| {
-                        s.split('\n')
-                            .map(|s| make_first_uppercase(s))
-                            .collect::<Vec<String>>()
-                            .join("  ")
-                    })
-                    .collect::<Vec<String>>();
-                wrap(&body.join("\r\n\r\n"), 72)
-            };
-            // Mail Date
-            let date: DateTime<Utc> = DateTimeBetween(
-                Utc.from_utc_datetime(&NaiveDateTime::from_timestamp(
-                    Utc::now().timestamp() - 15_552_000,
-                    0
-                )),
-                Utc::now()
-            )
-                .fake();
+            let nb = req.param("nb").unwrap_or("1");
+            let nb = usize::from_str_radix(nb, 10)?;
 
-            let data = format!(
-                "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
-                date.to_rfc2822(),
-                from_name,
-                from,
-                to_name,
-                to,
-                subject,
-                date.timestamp(),
-                date.timestamp_millis(),
-                FreeEmailProvider().fake::<String>(),
-                body,
-            );
-            trace!("Faking new mail:\n{}", data);
+            for _ in 0..nb {
+                // Expeditor mail address
+                let from: String = SafeEmail().fake();
+                let from_name: String = Name().fake();
+                // Recipient mail address
+                let to: String = SafeEmail().fake();
+                let to_name: String = Name().fake();
+                // Mail subject
+                let subject: Vec<String> = Words(5..10).fake();
+                let subject = make_first_uppercase(&subject.join(" "));
+                // Body content
+                let body = {
+                    let mut body: Vec<String> = Paragraphs(1..8).fake();
+                    body[0] = format!("Lorem ipsum dolor sit amet, {}", body[0]);
+                    let body = body.iter().map(|s| {
+                        s.split('\n').map(|s| make_first_uppercase(s)).collect::<Vec<String>>().join("  ")
+                    }).collect::<Vec<String>>();
+                    wrap(&body.join("\r\n\r\n"), 72)
+                };
+                // Mail Date
+                let date: DateTime<Utc> = DateTimeBetween(
+                    Utc.from_utc_datetime(&NaiveDateTime::from_timestamp(
+                        Utc::now().timestamp() - 15_552_000,
+                        0
+                    )),
+                    Utc::now()
+                ).fake();
 
-            // TCP stream to send the mail
-            let stream = TcpStream::connect("localhost:1025").await?;
+                let data = format!(
+                    "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
+                    date.to_rfc2822(),
+                    from_name,
+                    from,
+                    to_name,
+                    to,
+                    subject,
+                    date.timestamp(),
+                    date.timestamp_millis(),
+                    FreeEmailProvider().fake::<String>(),
+                    body,
+                );
+                trace!("Faking new mail:\n{}", data);
 
-            let (reader, mut writer) = (stream.clone(), stream);
+                // TCP stream to send the mail
+                let stream = TcpStream::connect("localhost:1025").await?;
 
-            let reader = BufReader::new(&reader);
-            let mut lines = reader.lines();
+                let (reader, mut writer) = (stream.clone(), stream);
 
-            // Greeting
-            lines.next().await.unwrap()?;
-            writer.write_all(b"helo localhost\r\n").await?;
+                let reader = BufReader::new(&reader);
+                let mut lines = reader.lines();
 
-            // From
-            lines.next().await.unwrap()?;
-            writer
-                .write_all(format!("mail from:<{}>\r\n", from).as_bytes())
-                .await?;
+                // Greeting
+                lines.next().await.unwrap()?;
+                writer.write_all(b"helo localhost\r\n").await?;
 
-            // To
-            lines.next().await.unwrap()?;
-            writer
-                .write_all(format!("rcpt to:<{}>\r\n", to).as_bytes())
-                .await?;
+                // From
+                lines.next().await.unwrap()?;
+                writer.write_all(format!("mail from:<{}>\r\n", from).as_bytes()).await?;
 
-            // Data
-            lines.next().await.unwrap()?;
-            writer.write_all(b"data\r\n").await?;
-            lines.next().await.unwrap()?;
-            writer
-                .write_all(format!("{}\r\n.\r\n", data).as_bytes())
-                .await?;
+                // To
+                lines.next().await.unwrap()?;
+                writer.write_all(format!("rcpt to:<{}>\r\n", to).as_bytes()).await?;
 
-            // Quit
-            lines.next().await.unwrap()?;
-            writer.write_all(b"quit\r\n").await?;
-            lines.next().await.unwrap()?;
+                // Data
+                lines.next().await.unwrap()?;
+                writer.write_all(b"data\r\n").await?;
+                lines.next().await.unwrap()?;
+                writer.write_all(format!("{}\r\n.\r\n", data).as_bytes()).await?;
+
+                // Quit
+                lines.next().await.unwrap()?;
+                writer.write_all(b"quit\r\n").await?;
+                lines.next().await.unwrap()?;
+            }
 
             Ok("OK")
         });
