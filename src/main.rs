@@ -10,11 +10,14 @@ use async_std::{
 };
 use futures::StreamExt;
 
-use crate::mail::{
-    broker::{mail_broker, MailEvt},
-    Mail,
+use crate::{
+    http::Params,
+    mail::{
+        broker::{mail_broker, MailEvt},
+        Mail,
+    },
+    utils::spawn_task_and_swallow_log_errors,
 };
-use crate::utils::spawn_task_and_swallow_log_errors;
 
 mod encoding;
 mod http;
@@ -54,6 +57,13 @@ async fn main_fut() -> crate::Result<()> {
 
     let (tx_new_mail, rx_new_mail) = channel::bounded(1);
     let tx_http_new_mail = tx_mail_broker.clone();
+    let http_params = Params {
+        port: port_http,
+        mail_broker: tx_mail_broker,
+        rx_mails: rx_new_mail,
+        #[cfg(feature = "fake")]
+        tx_new_mail: tx_mail_from_smtp.clone(),
+    };
     spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
         loop {
             // To do on each received new mail
@@ -74,7 +84,7 @@ async fn main_fut() -> crate::Result<()> {
     // Starting SMTP side
     let s = smtp::serve_smtp(port_smtp, my_name, tx_mail_from_smtp, use_starttls);
     // Starting HTTP side
-    let h = http::serve_http(port_http, tx_mail_broker, rx_new_mail);
+    let h = http::serve_http(http_params);
     // Waiting for both to complete
     s.try_join(h).try_join(mail_broker).await?;
 

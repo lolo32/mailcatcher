@@ -15,7 +15,6 @@ name = "mailcatcher"
 path = "src/main.rs"
 
 [features]
-faking = ["fake"]
 
 [dependencies.async-std]
 version = "1.8.0"

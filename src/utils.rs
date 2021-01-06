@@ -88,6 +88,7 @@ impl fmt::Display for ConnectionInfo {
     }
 }
 
+#[allow(unused)]
 pub fn wrap(text: &str, column: usize) -> String {
     let mut pos = 0;
 

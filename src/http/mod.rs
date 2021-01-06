@@ -35,17 +35,24 @@ where
 {
     sse_stream: BroadcastChannel<T, UnboundedSender<T>, UnboundedReceiver<T>>,
     mail_broker: Sender<MailEvt>,
+    #[cfg(feature = "fake")]
+    new_fake_mail: Sender<Mail>,
 }
 
-pub async fn serve_http(
-    port: u16,
-    mail_broker: Sender<MailEvt>,
-    mut rx_mails: Receiver<Mail>,
-) -> crate::Result<()> {
+pub struct Params {
+    pub port: u16,
+    pub mail_broker: Sender<MailEvt>,
+    pub rx_mails: Receiver<Mail>,
+    #[cfg(feature = "fake")]
+    pub tx_new_mail: Sender<Mail>,
+}
+
+pub async fn serve_http(params: Params) -> crate::Result<()> {
     // Stream reader and writer for SSE notifications
     let sse_stream = BroadcastChannel::new();
 
     let sse_stream_new_mail = sse_stream.clone();
+    let mut rx_mails = params.rx_mails;
     spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
         loop {
             // To do on each received new mail
@@ -83,7 +90,9 @@ pub async fn serve_http(
 
     let state = State {
         sse_stream,
-        mail_broker,
+        mail_broker: params.mail_broker,
+        #[cfg(feature = "fake")]
+        new_fake_mail: params.tx_new_mail,
     };
     let mut app = tide::with_state(state);
 
@@ -170,7 +179,7 @@ pub async fn serve_http(
         .get(|req: Request<State<SseEvt>>| async move {
             let (s, mut r) = channel::unbounded();
             req.state().mail_broker.send(MailEvt::RemoveAll(s)).await?;
-            let mut nb = 0;
+            let mut nb = 0_usize;
             while let Some(id) = r.next().await {
                 nb += 1;
                 match req.state().sse_stream.send(&SseEvt::DelMail(id)).await {
@@ -200,11 +209,10 @@ pub async fn serve_http(
     // SSE stream
     app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
 
-    #[cfg(feature = "faking")]
+    #[cfg(feature = "fake")]
     {
         async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
             use crate::utils::wrap;
-            use async_std::{io::BufReader, net::TcpStream};
             use chrono::{offset::Utc, DateTime, NaiveDateTime, TimeZone};
             use fake::{
                 faker::{
@@ -215,7 +223,6 @@ pub async fn serve_http(
                 },
                 Fake,
             };
-            use futures::{AsyncBufReadExt, AsyncWriteExt};
 
             fn make_first_uppercase(s: &str) -> String {
                 format!(
@@ -225,8 +232,10 @@ pub async fn serve_http(
                 )
             }
 
-            let nb = req.param("nb").unwrap_or("1");
-            let nb = usize::from_str_radix(nb, 10).unwrap_or(1);
+            let nb = req
+                .param("nb")
+                .map(|nb| usize::from_str_radix(nb, 10).unwrap_or(1))
+                .unwrap_or(1);
 
             for _ in 0..nb {
                 // Expeditor mail address
@@ -278,42 +287,16 @@ pub async fn serve_http(
                 );
                 trace!("Faking new mail:\n{}", data);
 
-                // TCP stream to send the mail
-                let stream = TcpStream::connect("localhost:1025").await?;
+                let mail = Mail::new(
+                    &format!("{}<{}>", from_name, from),
+                    &[format!("{}<{}>", to_name, to)],
+                    &data,
+                );
 
-                let (reader, mut writer) = (stream.clone(), stream);
-
-                let reader = BufReader::new(&reader);
-                let mut lines = reader.lines();
-
-                // Greeting
-                lines.next().await.unwrap()?;
-                writer.write_all(b"helo localhost\r\n").await?;
-
-                // From
-                lines.next().await.unwrap()?;
-                writer
-                    .write_all(format!("mail from:<{}>\r\n", from).as_bytes())
-                    .await?;
-
-                // To
-                lines.next().await.unwrap()?;
-                writer
-                    .write_all(format!("rcpt to:<{}>\r\n", to).as_bytes())
-                    .await?;
-
-                // Data
-                lines.next().await.unwrap()?;
-                writer.write_all(b"data\r\n").await?;
-                lines.next().await.unwrap()?;
-                writer
-                    .write_all(format!("{}\r\n.\r\n", data).as_bytes())
-                    .await?;
-
-                // Quit
-                lines.next().await.unwrap()?;
-                writer.write_all(b"quit\r\n").await?;
-                lines.next().await.unwrap()?;
+                match req.state().new_fake_mail.send(mail).await {
+                    Ok(()) => debug!("New faked mail sent!"),
+                    Err(e) => debug!("New mail error: {:?}", e),
+                }
             }
 
             Ok(format!("OK: {}", nb))
@@ -328,7 +311,7 @@ pub async fn serve_http(
     // Bind ports
     let mut listener = app
         .bind(
-            format!("localhost:{}", port)
+            format!("localhost:{}", params.port)
                 .to_socket_addrs()
                 .await?
                 .collect::<Vec<_>>(),
