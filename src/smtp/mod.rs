@@ -286,7 +286,6 @@ impl<'a> Smtp<'a> {
             Command::StartTls => {
                 // TODO: need to implement it
                 unimplemented!();
-                Ok(None)
             }
             // Reset the state
             Command::Reset => {
