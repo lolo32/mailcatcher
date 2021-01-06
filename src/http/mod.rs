@@ -170,13 +170,15 @@ pub async fn serve_http(
         .get(|req: Request<State<SseEvt>>| async move {
             let (s, mut r) = channel::unbounded();
             req.state().mail_broker.send(MailEvt::RemoveAll(s)).await?;
+            let mut nb = 0;
             while let Some(id) = r.next().await {
+                nb += 1;
                 match req.state().sse_stream.send(&SseEvt::DelMail(id)).await {
                     Ok(_) => trace!("Success notification of removal: {}", id.to_string()),
                     Err(e) => error!("Notification of removal {}: {:?}", id.to_string(), e),
                 }
             }
-            Ok("OK")
+            Ok(format!("OK: {}", nb))
         });
     // Remove a mail by id
     app.at("/remove/:id")
@@ -189,7 +191,7 @@ pub async fn serve_http(
                 if mail.is_some() {
                     info!("mail removed {:?}", mail);
                     req.state().sse_stream.send(&SseEvt::DelMail(id)).await?;
-                    return Ok("OK".into());
+                    return Ok("OK: 1".into());
                 }
             }
             Ok(Response::new(StatusCode::NotFound))
