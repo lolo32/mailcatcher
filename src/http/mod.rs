@@ -199,9 +199,8 @@ pub async fn serve_http(
     app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
 
     #[cfg(feature = "faking")]
-    // Generate some fake mails
-    app.at("/fake/:nb")
-        .get(|req: Request<State<SseEvt>>| async move {
+    {
+        async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
             use crate::utils::wrap;
             use async_std::{io::BufReader, net::TcpStream};
             use chrono::{offset::Utc, DateTime, NaiveDateTime, TimeZone};
@@ -225,7 +224,7 @@ pub async fn serve_http(
             }
 
             let nb = req.param("nb").unwrap_or("1");
-            let nb = usize::from_str_radix(nb, 10)?;
+            let nb = usize::from_str_radix(nb, 10).unwrap_or(1);
 
             for _ in 0..nb {
                 // Expeditor mail address
@@ -241,19 +240,26 @@ pub async fn serve_http(
                 let body = {
                     let mut body: Vec<String> = Paragraphs(1..8).fake();
                     body[0] = format!("Lorem ipsum dolor sit amet, {}", body[0]);
-                    let body = body.iter().map(|s| {
-                        s.split('\n').map(|s| make_first_uppercase(s)).collect::<Vec<String>>().join("  ")
-                    }).collect::<Vec<String>>();
+                    let body = body
+                        .iter()
+                        .map(|s| {
+                            s.split('\n')
+                                .map(|s| make_first_uppercase(s))
+                                .collect::<Vec<String>>()
+                                .join("  ")
+                        })
+                        .collect::<Vec<String>>();
                     wrap(&body.join("\r\n\r\n"), 72)
                 };
                 // Mail Date
                 let date: DateTime<Utc> = DateTimeBetween(
                     Utc.from_utc_datetime(&NaiveDateTime::from_timestamp(
                         Utc::now().timestamp() - 15_552_000,
-                        0
+                        0,
                     )),
-                    Utc::now()
-                ).fake();
+                    Utc::now(),
+                )
+                .fake();
 
                 let data = format!(
                     "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
@@ -284,17 +290,23 @@ pub async fn serve_http(
 
                 // From
                 lines.next().await.unwrap()?;
-                writer.write_all(format!("mail from:<{}>\r\n", from).as_bytes()).await?;
+                writer
+                    .write_all(format!("mail from:<{}>\r\n", from).as_bytes())
+                    .await?;
 
                 // To
                 lines.next().await.unwrap()?;
-                writer.write_all(format!("rcpt to:<{}>\r\n", to).as_bytes()).await?;
+                writer
+                    .write_all(format!("rcpt to:<{}>\r\n", to).as_bytes())
+                    .await?;
 
                 // Data
                 lines.next().await.unwrap()?;
                 writer.write_all(b"data\r\n").await?;
                 lines.next().await.unwrap()?;
-                writer.write_all(format!("{}\r\n.\r\n", data).as_bytes()).await?;
+                writer
+                    .write_all(format!("{}\r\n.\r\n", data).as_bytes())
+                    .await?;
 
                 // Quit
                 lines.next().await.unwrap()?;
@@ -302,8 +314,14 @@ pub async fn serve_http(
                 lines.next().await.unwrap()?;
             }
 
-            Ok("OK")
-        });
+            Ok(format!("OK: {}", nb))
+        }
+
+        // Generate one fake mail
+        app.at("/fake").get(faking);
+        // Generate :nb fake mails, 1 if not a number
+        app.at("/fake/:nb").get(faking);
+    }
 
     // Bind ports
     let mut listener = app
