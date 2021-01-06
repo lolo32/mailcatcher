@@ -18,7 +18,6 @@ use tide::{
 };
 use ulid::Ulid;
 
-use crate::utils::wrap;
 use crate::{
     http::{asset::Asset, sse_evt::SseEvt},
     mail::{broker::MailEvt, HeaderRepresentation, Mail, Type},
@@ -199,79 +198,67 @@ pub async fn serve_http(
     // SSE stream
     app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
 
-    #[cfg(feature = "fake")]
+    #[cfg(feature = "faking")]
     // Generate some fake mails
     app.at("/fake")
         .get(|_req: Request<State<SseEvt>>| async move {
             use async_std::{io::BufReader, net::TcpStream};
-            use chrono::{offset::Utc, DateTime, NaiveDateTime};
+            use chrono::{offset::Utc, DateTime, TimeZone};
+            use fake::{
+                Fake,
+                faker::{
+                    chrono::en::DateTimeBetween,
+                    internet::en::SafeEmail,
+                    lorem::en::{Paragraphs, Words},
+                    name::en::Name,
+                }
+            };
             use futures::{AsyncBufReadExt, AsyncWriteExt};
-            use lipsum::{lipsum, lipsum_title, lipsum_words};
-            use rand_chacha::{
-                rand_core::{impls::next_u32_via_fill, SeedableRng},
-                ChaCha8Rng,
-            };
+            use crate::utils::wrap;
 
-            // Initialise a PRNG based on timestamp seed
-            let mut rng = ChaCha8Rng::from_seed([0; 32]);
-            rng.set_stream(Utc::now().timestamp() as u64);
-
-            let mut rnd = move |range: std::ops::Range<i64>| {
-                let val = next_u32_via_fill(&mut rng);
-
-                let max = range.end - range.start;
-                range.start + (val as f64 * max as f64 / u32::MAX as f64).floor() as i64
-            };
+            fn make_first_uppercase(s: &str) -> String {
+                format!(
+                    "{}{}",
+                    s.get(0..1).unwrap().to_uppercase(),
+                    s.get(1..).unwrap()
+                )
+            }
 
             // Expeditor mail address
-            let from = format!(
-                "{}@{}.{}",
-                lipsum_words(1).trim_end_matches('.'),
-                lipsum_words(1).trim_end_matches('.'),
-                lipsum_words(1).trim_end_matches('.'),
-            );
+            let from: String = SafeEmail().fake();
+            let from_name: String = Name().fake();
             // Recipient mail address
-            let to = format!(
-                "{}@{}.{}",
-                lipsum_words(1).trim_end_matches('.'),
-                lipsum_words(1).trim_end_matches('.'),
-                lipsum_words(1).trim_end_matches('.'),
-            );
+            let to: String = SafeEmail().fake();
+            let to_name: String = Name().fake();
             // Mail subject
-            let subject = lipsum_title();
+            let subject: Vec<String> = Words(5..10).fake();
+            let subject = make_first_uppercase(&subject.join(" "));
             // Body content
             let body = {
-                let text = lipsum(rnd(19..120) as usize);
-                let text = text.split('.').collect::<Vec<_>>();
-                let mut text = text.iter();
-
-                let mut body = String::new();
-                body.push_str(text.next().unwrap());
-                body.push('.');
-
-                for t in text {
-                    let t = if rnd(0..10) < 6 {
-                        body.push_str("\r\n\r\n");
-                        t.trim_start()
-                    } else {
-                        t
-                    };
-                    body.push_str(t);
-                    body.push('.');
-                }
-                wrap(&body, 72)
+                let body: Vec<String> = Paragraphs(1..8).fake();
+                let body = body.iter()
+                    .map(|s|
+                        s.split('\n')
+                            .map(|s| make_first_uppercase(s))
+                            .collect::<Vec<String>>()
+                            .join(" ")
+                    )
+                    .collect::<Vec<String>>();
+                wrap(&body.join("\r\n\r\n"), 72)
             };
             // Mail Date
-            let date = {
-                let date = rnd(1..Utc::now().timestamp());
-                let date = NaiveDateTime::from_timestamp(date, 0);
-                DateTime::<Utc>::from_utc(date, Utc)
-            };
+            let date: DateTime<Utc> = DateTimeBetween(
+                Utc.ymd(2019, 1, 1).and_hms(0, 0, 0),
+                Utc::now(),
+            )
+                .fake();
 
             let data = format!(
-                "Date: {}\r\nFrom: {}\r\nTo: {}\r\nSubject: {}\r\n\r\n{}",
+                "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\n\r\nLorem ipsum dolor sit amet, {}",
                 date.to_rfc2822(),
+                from_name,
                 from,
+                to_name,
                 to,
                 subject,
                 body

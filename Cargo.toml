@@ -15,7 +15,7 @@ name = "mailcatcher"
 path = "src/main.rs"
 
 [features]
-fake = ["lipsum", "rand_chacha"]
+faking = ["fake"]
 
 [dependencies.async-std]
 version = "1.8.0"
@@ -40,6 +40,11 @@ default-features = false
 [dependencies.env_logger]
 version = "0.8.2"
 
+[dependencies.fake]
+version = "2.4.0"
+features = ["chrono"]
+optional = true
+
 [dependencies.fnv]
 version = "1.0.7"
 
@@ -52,10 +57,6 @@ features = ["alloc", "std"]
 version = "1.4.0"
 default-features = false
 
-[dependencies.lipsum]
-version = "0.7.0"
-optional = true
-
 [dependencies.log]
 version = "0.4.11"
 default-features = false
@@ -67,10 +68,6 @@ default-features = false
 [dependencies.quote]
 version = "1"
 default-features = false
-
-[dependencies.rand_chacha]
-version = "0.3.0"
-optional = true
 
 [dependencies.regex]
 version = "1.4.2"
