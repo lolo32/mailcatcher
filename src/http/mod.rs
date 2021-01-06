@@ -202,19 +202,19 @@ pub async fn serve_http(
     // Generate some fake mails
     app.at("/fake")
         .get(|_req: Request<State<SseEvt>>| async move {
+            use crate::utils::wrap;
             use async_std::{io::BufReader, net::TcpStream};
-            use chrono::{offset::Utc, DateTime, TimeZone};
+            use chrono::{offset::Utc, DateTime, NaiveDateTime, TimeZone};
             use fake::{
-                Fake,
                 faker::{
                     chrono::en::DateTimeBetween,
-                    internet::en::SafeEmail,
+                    internet::en::{FreeEmailProvider, SafeEmail},
                     lorem::en::{Paragraphs, Words},
                     name::en::Name,
-                }
+                },
+                Fake,
             };
             use futures::{AsyncBufReadExt, AsyncWriteExt};
-            use crate::utils::wrap;
 
             fn make_first_uppercase(s: &str) -> String {
                 format!(
@@ -235,33 +235,41 @@ pub async fn serve_http(
             let subject = make_first_uppercase(&subject.join(" "));
             // Body content
             let body = {
-                let body: Vec<String> = Paragraphs(1..8).fake();
-                let body = body.iter()
-                    .map(|s|
+                let mut body: Vec<String> = Paragraphs(1..8).fake();
+                body[0] = format!("Lorem ipsum dolor sit amet, {}", body[0]);
+                let body = body
+                    .iter()
+                    .map(|s| {
                         s.split('\n')
                             .map(|s| make_first_uppercase(s))
                             .collect::<Vec<String>>()
-                            .join(" ")
-                    )
+                            .join("  ")
+                    })
                     .collect::<Vec<String>>();
                 wrap(&body.join("\r\n\r\n"), 72)
             };
             // Mail Date
             let date: DateTime<Utc> = DateTimeBetween(
-                Utc.ymd(2019, 1, 1).and_hms(0, 0, 0),
-                Utc::now(),
+                Utc.from_utc_datetime(&NaiveDateTime::from_timestamp(
+                    Utc::now().timestamp() - 15_552_000,
+                    0
+                )),
+                Utc::now()
             )
                 .fake();
 
             let data = format!(
-                "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\n\r\nLorem ipsum dolor sit amet, {}",
+                "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
                 date.to_rfc2822(),
                 from_name,
                 from,
                 to_name,
                 to,
                 subject,
-                body
+                date.timestamp(),
+                date.timestamp_millis(),
+                FreeEmailProvider().fake::<String>(),
+                body,
             );
             trace!("Faking new mail:\n{}", data);
 
