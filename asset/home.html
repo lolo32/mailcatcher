@@ -165,6 +165,9 @@
         // Enable/Disable SSE automatic update
         const ToggleSse = (state) => ({...state, sse: !state.sse})
 
+        // Enable/Disable about modal dialog
+        const ToggleAbout = (state) => ({...state, about: !state.about})
+
         // Update mail date
         const UpdateDate = (state) => ({...state, mails: state.mails.map(updateSince)})
 
@@ -197,8 +200,7 @@
         app({
             init: [
                 {
-                    todos: [],
-                    value: "",
+                    about: false,
                     mails: [],
                     fetching: false,
                     mail: {},
@@ -216,7 +218,7 @@
                 // Enable/Disable SSE
                 state.sse && initSse({action: GetMailList}),
             ],
-            view: ({fetching, mails, mail, raw, id, sse, rawMail}) =>
+            view: ({about, fetching, mails, mail, raw, id, sse, rawMail}) =>
                 h("main", {}, [
                     // Display if a request is pending
                     fetching &&
@@ -236,6 +238,9 @@
                                 text(" "),
                                 // Empty list
                                 h("button", {class: ["w3-theme-d1", "w3-btn"], onclick: ClearMails}, text("🔥")),
+                                text(" "),
+                                // About button
+                                h("button", {class: ["w3-theme-d1", "w3-btn"], onclick: ToggleAbout}, text("⁉")),
                             ]),
                             // List of mails
                             h("ul", {class: ["w3-small", "w3-padding-16", "w3-ul", "w3-border-bottom"]},
@@ -289,6 +294,55 @@
                             ]),
                         ),
                     ]),
+                    // If the About button been pressed
+                    about &&
+                    h("div", {class: ["w3-modal", "w3-responsive"], onclick: stopPropagation(ToggleAbout)},
+                        h("div", {class: ["w3-modal-content", "w3-card-4"]}, [
+                            // Close modal button
+                            h("span", {
+                                    class: ["w3-button", "w3-display-topright", "w3-theme-action"],
+                                    onclick: stopPropagation(ToggleAbout),
+                                },
+                                text("×")),
+                            h("h1", {class: ["w3-theme-l4", "w3-padding-small"]}, text("About…")),
+                            h("div", {class: ["w3-responsive", "w3-padding-small"]}, [
+                                h("div", {}, [
+                                    h("h3", {}, text("Notice")),
+                                    h("div", {}, [
+                                        h("a", {href: "https://github.com/lolo32/mailcatcher"}, text("MailCatcher")),
+                                        text(
+                                            " is a SMTP mail server that accept every mail but does not distribute " +
+                                            "any mail to remote recipient."
+                                        )
+                                    ]),
+                                    h("h3", {}, text("Licenses")),
+                                    h("p", {}, [
+                                        text("It's published under the "),
+                                        h("em", {},
+                                            h("a",
+                                                {href: "https://www.apache.org/licenses/LICENSE-2.0.html"},
+                                                text("Apache License Version 2.0")
+                                            )),
+                                        text("."),
+                                    ]),
+                                    h("p", {}, [
+                                        text("The CSS is the "),
+                                        h("a", {href: "https://www.w3schools.com/w3css/"}, text("W3.CSS")),
+                                        text(" that "),
+                                        h("em", {}, text("does not have a license and is free to use")),
+                                        text("."),
+                                    ]),
+                                    h("p", {}, [
+                                        text("The Javascript is "),
+                                        h("a", {href: "https://github.com/jorgebucaran/hyperapp"}, text("Hyperapp")),
+                                        text(" that is licensed under the "),
+                                        h("em", {}, h("a", {href: "https://mit-license.org/"}, text("MIT"))),
+                                        text(" license."),
+                                    ]),
+                                ]),
+                            ]),
+                        ]),
+                    ),
                 ]),
             node: document.getElementById("app"),
         })
