@@ -25,3 +25,7 @@ a license and is free to use_.
 
 The Javascript is [Hyperapp](https://github.com/jorgebucaran/hyperapp) that 
 is licensed under the _[MIT](https://mit-license.org/)_ license.
+
+All rust used libraries are licensed under [MIT](https://mit-license.org/) 
+except `broadcaster` that is unlicensed; some are also licensed under 
+[Apache License Version 2.0](LICENSE.txt).
