@@ -40,7 +40,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --all-features --verbose
+          args: --all-features
 
       # Checks Rust code formatting
       - name: Run cargo fmt
@@ -78,7 +78,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --verbose --all
+          args: --all-features --all
         env:
           CARGO_INCREMENTAL: 0
           RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests"
@@ -110,4 +110,4 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features --verbose
+          args: --release --all-features
