@@ -29,21 +29,24 @@ pub async fn mail_broker(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
                 match evt {
                     // A new mail, add it to the list
                     MailEvt::NewMail(mail) => {
-                        mails.insert(mail.id, mail.clone());
+                        mails.insert(mail.get_id(), mail.clone());
                     }
                     // Want to retrieve the mail from this id
                     MailEvt::GetMail(sender, id) => {
                         sender.send(mails.get(&id).cloned()).await?;
+                        drop(sender);
                     }
                     // Want to retrieve all mails
                     MailEvt::GetAll(sender) => {
                         for mail in mails.values().cloned() {
                             sender.send(mail).await?
                         }
+                        drop(sender);
                     }
                     // Remove a mail by the id
                     MailEvt::Remove(sender, id) => {
-                        sender.send(mails.remove(&id).map(|m| m.id)).await?;
+                        sender.send(mails.remove(&id).map(|m| m.get_id())).await?;
+                        drop(sender);
                     }
                     // Remove all mails
                     MailEvt::RemoveAll(sender) => {
@@ -53,6 +56,7 @@ pub async fn mail_broker(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
                             mails.remove(&id);
                             sender.send(id).await?;
                         }
+                        drop(sender);
                     }
                 }
             }
