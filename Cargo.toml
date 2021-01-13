@@ -82,11 +82,6 @@ version = "1.0.61"
 default-features = false
 features = ["alloc"]
 
-[dependencies.sled]
-version = "0.34"
-optional = true
-default-features = false
-
 [dependencies.syn]
 version = "1"
 default-features = false
