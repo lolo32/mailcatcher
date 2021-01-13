@@ -1,20 +1,17 @@
 // Based on RustEmbed crate
 
 extern crate proc_macro;
-#[macro_use]
-extern crate quote;
 
 use proc_macro::TokenStream;
 use std::{env, fs, path::Path, time::SystemTime};
 
 use chrono::{DateTime, Utc};
 use miniz_oxide::deflate::compress_to_vec;
-use syn::{
-    export::{Span, TokenStream2},
-    Data, DeriveInput, Fields, Ident, Lit, LitByteStr, Meta,
-};
+use proc_macro2::Span;
+use quote::quote;
+use syn::{Data, DeriveInput, Fields, Ident, Lit, LitByteStr, Meta};
 
-fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
+fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream {
     let mut match_values = Vec::new();
     let mut modified_values = Vec::new();
 
@@ -63,7 +60,7 @@ fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
         }
     }
 
-    quote! {
+    let q = quote! {
         // Release build
         #[cfg(not(debug_assertions))]
         impl #ident {
@@ -118,10 +115,12 @@ fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream2 {
                 }
             }
         }
-    }
+    };
+
+    q.into()
 }
 
-fn impl_asset_embed(ast: &DeriveInput) -> TokenStream2 {
+fn impl_asset_embed(ast: &DeriveInput) -> TokenStream {
     match ast.data {
         Data::Struct(ref data) => match data.fields {
             Fields::Unit => {}
@@ -171,6 +170,5 @@ fn impl_asset_embed(ast: &DeriveInput) -> TokenStream2 {
 #[proc_macro_derive(AssetEmbed, attributes(folder))]
 pub fn derive_input_object(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
-    let gen = impl_asset_embed(&ast);
-    gen.into()
+    impl_asset_embed(&ast)
 }
