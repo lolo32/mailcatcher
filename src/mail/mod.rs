@@ -261,4 +261,18 @@ This is a test mailing
 
         assert!(mail.get_html().is_none());
     }
+
+    #[test]
+    fn summary_is_json() {
+        let mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_SIMPLE);
+        let summary = mail.summary().to_string();
+
+        assert_eq!(
+            summary,
+            format!(
+                r#"{{"date":1606006703,"from":"from@example.org","id":"{}","size":251,"subject":"test Sun, 22 Nov 2020 01:58:23 +0100","to":["to@example.net"]}}"#,
+                mail.id
+            )
+        );
+    }
 }
