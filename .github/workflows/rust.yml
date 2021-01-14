@@ -55,17 +55,10 @@ jobs:
       - name: Install nightly toolchain
         uses: actions-rs/toolchain@v1
         with:
-          profile: minimal
+          profile: default
           toolchain: nightly
           override: true
           components: clippy, rustfmt
-
-      # Checks Rust code with Clippy
-      - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all-features -- -D warnings
 
       # Checks Rust code formatting
       - name: Run cargo fmt
@@ -73,6 +66,13 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
+
+      # Checks Rust code with Clippy
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all-features -- -D warnings
 
   test:
     # The type of runner that the job will run on
