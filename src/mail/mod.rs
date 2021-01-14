@@ -15,8 +15,8 @@ pub enum Type {
     Text,
     // Mail content that is in HTML
     Html,
-    Image(String, String),
-    Other(String, String),
+    //Image(String, String),
+    //Other(String, String),
 }
 
 pub enum HeaderRepresentation {
