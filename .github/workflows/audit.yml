@@ -1,0 +1,26 @@
+name: Security audit
+
+on:
+  schedule:
+    # Launch everyday, at midnight
+    - cron: '0 0 * * *'
+  push:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+  pull_request:
+
+jobs:
+  security_audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout Git repository
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      # Security scan all dependencies, create a Pull Request if anyone found
+      - name: Security audit used dependencies
+        uses: actions-rs/audit-check@issue-104
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
