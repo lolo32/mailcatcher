@@ -73,7 +73,7 @@ jobs:
         continue-on-error: true # note: the compiler unexpectedly panicked. this is a bug.
         with:
           command: clippy
-          args: --all-features --verbose -- -D warnings
+          args: --all-features -- -D warnings
 
   test:
     # The type of runner that the job will run on
