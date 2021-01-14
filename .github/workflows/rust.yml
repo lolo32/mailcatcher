@@ -72,7 +72,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --all-features -- -D warnings
+          args: --all-features --verbose -- -D warnings
 
   test:
     # The type of runner that the job will run on
