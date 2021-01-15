@@ -17,7 +17,7 @@ path = "src/main.rs"
 [features]
 
 [dependencies.async-std]
-version = "1.8.0"
+version = "1.9.0"
 default-features = true
 features = ["unstable"]
 
@@ -48,7 +48,7 @@ optional = true
 version = "1.0.7"
 
 [dependencies.futures]
-version = "0.3.8"
+version = "0.3.12"
 default-features = false
 features = ["alloc", "std"]
 
@@ -57,7 +57,7 @@ version = "1.4.0"
 default-features = false
 
 [dependencies.log]
-version = "0.4.11"
+version = "0.4.13"
 default-features = false
 
 [dependencies.miniz_oxide]
@@ -72,7 +72,7 @@ version = "1"
 default-features = false
 
 [dependencies.regex]
-version = "1.4.2"
+version = "1.4.3"
 default-features = false
 # feature std needed by regex
 features = ["std"]
