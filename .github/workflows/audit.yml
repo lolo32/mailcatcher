@@ -9,6 +9,8 @@ on:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
   pull_request:
+  # Allow to manually trigger the check
+  workflow_dispatch:
 
 jobs:
   security_audit:
