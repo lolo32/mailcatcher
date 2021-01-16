@@ -1,4 +1,5 @@
 use encoding::{label::encoding_from_whatwg_label, DecoderTrap};
+use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 
 lazy_static! {

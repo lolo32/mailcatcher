@@ -9,6 +9,7 @@ use futures::{
     stream::FuturesUnordered,
     {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
+use log::{error, info, trace};
 
 use crate::{
     mail::Mail,

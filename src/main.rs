@@ -1,14 +1,10 @@
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-
 use async_std::{
     channel::{self, Receiver, Sender},
     prelude::FutureExt,
     task,
 };
 use futures::StreamExt;
+use log::{error, info, trace};
 
 use crate::{
     http::Params,

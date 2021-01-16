@@ -1,5 +1,6 @@
 use async_std::channel::{Receiver, Sender};
 use futures::StreamExt;
+use log::trace;
 use ulid::Ulid;
 
 use crate::{mail::Mail, utils::spawn_task_and_swallow_log_errors};

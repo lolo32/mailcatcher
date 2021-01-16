@@ -5,6 +5,7 @@ use std::{
 };
 
 use async_std::{net::SocketAddr, task};
+use log::{error, info};
 
 // Spawn a new async task, waiting it completion,
 // it display it's status at the end: Success or Error
@@ -106,7 +107,7 @@ pub fn wrap(text: &str, column: usize) -> String {
         if !res.ends_with("\r\n") {
             res.push_str("\r\n");
         }
-        let slice = text.get(start..pos).unwrap_or("");
+        let mut slice = text.get(start..pos).unwrap_or("");
         if let Some(i) = slice.find("\r\n") {
             pos = start + i + 2;
             res.push_str(slice.get(0..(i + 2)).unwrap());

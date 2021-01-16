@@ -11,6 +11,7 @@ use futures::{
     channel::mpsc::{UnboundedReceiver, UnboundedSender},
     StreamExt,
 };
+use log::{debug, error, info, trace};
 use tide::{
     http::{headers, mime, Mime},
     prelude::{json, Listener},
