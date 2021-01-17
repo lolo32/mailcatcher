@@ -4,7 +4,8 @@ use async_std::{
     task,
 };
 use futures::StreamExt;
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
+use structopt::StructOpt;
 
 use crate::{
     http::Params,
@@ -24,24 +25,47 @@ mod utils;
 // Result type commonly used in this crate
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+#[derive(Debug, StructOpt)]
+#[structopt(about, author)]
+struct Opt {
+    /// SMTP listening port
+    #[structopt(long, default_value = "1025")]
+    smtp: u16,
+
+    /// HTTP listening port
+    #[structopt(long, default_value = "1080")]
+    http: u16,
+
+    /// Allow to use StartTls (not implemented)
+    #[structopt(skip)]
+    use_starttls: bool,
+
+    /// Name to use in the SMTP hello
+    ///
+    /// This is the name that is used during the SMTP greeting sequence
+    #[structopt(long, default_value = "MailCatcher")]
+    smtp_name: String,
+
+    /// Open browser's webpage at the start
+    #[structopt(long)]
+    browser: bool,
+}
+
 fn main() -> crate::Result<()> {
     // Initialize the log crate/macros based on RUST_LOG env value
     env_logger::init();
+
+    let opt = Opt::from_args();
+    debug!("Options: {:?}", opt);
+
     // Start the program, that is async, so block waiting it's end
-    task::block_on(main_fut())
+    task::block_on(main_fut(opt))
 }
 
-async fn main_fut() -> crate::Result<()> {
-    // TODO: Parse arguments
-    let (port_smtp, port_http) = (1025_u16, 1080_u16);
-    // TODO: Parse arguments
-    let my_name = "MailCatcher";
-    // TODO: Parse argument
-    let use_starttls = false;
-
+async fn main_fut(opt: Opt) -> crate::Result<()> {
     info!(
         "Starting MailCatcher on port smtp({}) and http({})",
-        port_smtp, port_http
+        opt.smtp, opt.http
     );
 
     // Channels used to notify a new mail arrived in SMTP side to HTTP side
@@ -54,7 +78,7 @@ async fn main_fut() -> crate::Result<()> {
     let (tx_new_mail, rx_new_mail) = channel::bounded(1);
     let tx_http_new_mail = tx_mail_broker.clone();
     let http_params = Params {
-        port: port_http,
+        port: opt.http,
         mail_broker: tx_mail_broker,
         rx_mails: rx_new_mail,
         #[cfg(feature = "fake")]
@@ -78,9 +102,20 @@ async fn main_fut() -> crate::Result<()> {
     });
 
     // Starting SMTP side
-    let s = smtp::serve_smtp(port_smtp, my_name, tx_mail_from_smtp, use_starttls);
+    let s = smtp::serve_smtp(
+        opt.smtp,
+        &opt.smtp_name,
+        tx_mail_from_smtp,
+        opt.use_starttls,
+    );
     // Starting HTTP side
     let h = http::serve_http(http_params);
+
+    // Open browser window at start if specified
+    if opt.browser {
+        opener::open(format!("http://localhost:{}/", opt.http))?;
+    }
+
     // Waiting for both to complete
     s.try_join(h).try_join(mail_broker).await?;
 

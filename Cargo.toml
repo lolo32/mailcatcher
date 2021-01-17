@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Lolo_32 <lol.b@free.fr>"]
 edition = "2018"
 license = "Apache-2.0"
+description = "Catchall mail SMTP server used on development computer"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -66,6 +67,9 @@ path = "mailcatcher-derive"
 version = "0.4.3"
 default-features = false
 
+[dependencies.opener]
+version = "0.4.1"
+
 [dependencies.regex]
 version = "1.4.3"
 default-features = false
@@ -76,6 +80,10 @@ features = ["std"]
 version = "1.0.61"
 default-features = false
 features = ["alloc"]
+
+[dependencies.structopt]
+version = "0.3.21"
+default-features = false
 
 [dependencies.tide]
 version = "0.15.0"
