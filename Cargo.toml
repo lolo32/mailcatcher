@@ -94,6 +94,9 @@ features = ["h1-server"]
 version = "0.4.1"
 default-features = false
 
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "*", features = ["winuser","wincon","shellapi"] }
+
 [profile.release]
 lto = "thin"
 debug-assertions = false
