@@ -1,5 +1,5 @@
 [package]
-name = "mailcatcher-lib"
+name = "mailcatcher"
 version = "0.1.0"
 authors = ["Lolo_32 <lol.b@free.fr>"]
 edition = "2018"
@@ -7,12 +7,11 @@ license = "Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[lib]
-proc-macro = true
-
-[[bin]]
-name = "mailcatcher"
-path = "src/main.rs"
+[workspace]
+members = [
+    ".",
+    "mailcatcher-derive"
+]
 
 [features]
 
@@ -60,15 +59,11 @@ default-features = false
 version = "0.4.13"
 default-features = false
 
+[dependencies.mailcatcher-derive]
+path = "mailcatcher-derive"
+
 [dependencies.miniz_oxide]
 version = "0.4.3"
-default-features = false
-
-[dependencies.proc-macro2]
-version = "1"
-
-[dependencies.quote]
-version = "1"
 default-features = false
 
 [dependencies.regex]
@@ -81,10 +76,6 @@ features = ["std"]
 version = "1.0.61"
 default-features = false
 features = ["alloc"]
-
-[dependencies.syn]
-version = "1"
-default-features = false
 
 [dependencies.tide]
 version = "0.15.0"

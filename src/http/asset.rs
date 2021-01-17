@@ -1,4 +1,4 @@
-use mailcatcher_lib::AssetEmbed;
+use mailcatcher_derive::AssetEmbed;
 
 #[derive(AssetEmbed)]
 #[folder = "asset/"]

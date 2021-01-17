@@ -969,7 +969,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mailcatcher-lib"
+name = "mailcatcher"
 version = "0.1.0"
 dependencies = [
  "async-std",
@@ -983,14 +983,23 @@ dependencies = [
  "futures",
  "lazy_static",
  "log",
+ "mailcatcher-derive",
+ "miniz_oxide",
+ "regex",
+ "serde_json",
+ "tide",
+ "ulid",
+]
+
+[[package]]
+name = "mailcatcher-derive"
+version = "0.1.0"
+dependencies = [
+ "chrono",
  "miniz_oxide",
  "proc-macro2",
  "quote",
- "regex",
- "serde_json",
  "syn",
- "tide",
- "ulid",
 ]
 
 [[package]]
