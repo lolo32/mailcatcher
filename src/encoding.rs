@@ -12,8 +12,9 @@ lazy_static! {
         regex::bytes::Regex::new("\x3D([\x30-\x39\x41-\x46]{2})").unwrap();
     static ref HEX_BYTE: fnv::FnvHashMap<String, u8> = {
         let mut m = fnv::FnvHashMap::default();
-        for i in 0x00..0xFF {
-            m.insert(format!("{:X}", i), i);
+        // Insert with 0 leading
+        for i in 0x00..=0xFF {
+            m.insert(format!("{:02X}", i), i);
         }
         m
     };
@@ -93,5 +94,13 @@ mod tests {
         let a = decode_string(text);
 
         assert_eq!(a, "From: Patrik Fältström <paf@nada.kth.se>");
+    }
+
+    #[test]
+    fn hex_decoding() {
+        println!("{:?}", HEX_BYTE.keys().collect::<Vec<&String>>());
+        assert_eq!(HEX_BYTE[&"00".to_string()], 0);
+        assert_eq!(HEX_BYTE[&"10".to_string()], 0x10);
+        assert_eq!(HEX_BYTE[&"FF".to_string()], 255);
     }
 }
