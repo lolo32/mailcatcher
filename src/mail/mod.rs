@@ -167,7 +167,9 @@ impl Mail {
         self.get_headers(raw)
             .iter()
             // Filter over key name
-            .filter(|header| header.len() > key_len && &header[..key_len] == key.as_str())
+            .filter(|header| {
+                header.find(' ') == Some(key_len - 1) && &header[..key_len] == key.as_str()
+            })
             // strip only to header content
             .map(|header| header[key_len..].to_string())
             .collect()
@@ -223,6 +225,13 @@ This is a test mailing
 
 
 ";
+    const DATA_COMPLEX: &str = r"From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;
+To: =?ISO-8859-1?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>;
+CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>;
+Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=
+ =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=
+
+This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn split_headers_body() {
@@ -273,6 +282,36 @@ This is a test mailing
                 r#"{{"date":1606006703,"from":"from@example.org","id":"{}","size":251,"subject":"test Sun, 22 Nov 2020 01:58:23 +0100","to":["to@example.net"]}}"#,
                 mail.id
             )
+        );
+    }
+
+    #[test]
+    fn multiline_header_content_and_humanized() {
+        let mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
+        let subject = mail.get_header_content("Subject", HeaderRepresentation::Raw);
+
+        assert_eq!(subject.len(), 1);
+        let subject = subject.get(0).unwrap();
+        assert_eq!(subject, "=?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=");
+
+        let subject = mail.get_header_content("Subject", HeaderRepresentation::Humanized);
+
+        assert_eq!(subject.len(), 1);
+        let subject = subject.get(0).unwrap();
+        assert_eq!(subject, "If you can read this you understand the example.");
+    }
+
+    #[test]
+    fn get_data() {
+        let mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
+
+        assert!(mail.get_data(&Type::Html).is_none());
+
+        let content = mail.get_data(&Type::Text);
+        assert!(content.is_some());
+        assert_eq!(
+            content.unwrap(),
+            "This is the content of this mail... but it says nothing now."
         );
     }
 }
