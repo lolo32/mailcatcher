@@ -247,12 +247,12 @@ impl<'a> Smtp<'a> {
             // A server name AND an expeditor
             Command::Recipient(_) => self.remote_name.is_some() && self.addr_from.is_some(),
             // Recipient has been used
-            Command::Data(_) => {
+            Command::Data(_) | Command::DataStart => {
                 self.remote_name.is_some() && self.addr_from.is_some() && !self.addr_to.is_empty()
             }
             // Always valid at anytime
             Command::Noop | Command::Quit | Command::Reset => true,
-            Command::DataStart | Command::DataEnd | Command::Error(_) => true,
+            Command::DataEnd | Command::Error(_) => true,
             // Only valid if specified at command line option, invalid otherwise
             Command::StartTls if self.use_starttls => true,
             Command::StartTls => false,
@@ -363,5 +363,203 @@ impl<'a> Smtp<'a> {
                 Ok(None)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use async_std::{
+        channel::bounded,
+        net::{TcpListener, TcpStream},
+        prelude::FutureExt,
+        task,
+    };
+    use futures::io::Lines;
+
+    use crate::mail::Type;
+
+    use super::*;
+
+    async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
+        let stream = TcpStream::connect(format!("localhost:{}", port)).await?;
+
+        let reader = BufReader::new(stream.clone());
+        let lines = reader.lines();
+
+        Ok((lines, stream))
+    }
+
+    #[test]
+    fn test_smtp() {
+        async fn async_test() -> crate::Result<()> {
+            const MY_NAME: &str = "UnitTest";
+
+            let tcp = TcpListener::bind("localhost:0").await?;
+            let port = tcp.local_addr().unwrap().port();
+            drop(tcp);
+
+            let (sender, mut receiver) = bounded(1);
+
+            let serve = serve_smtp(port, MY_NAME, sender, false);
+
+            let fut = async move {
+                let (mut lines, mut stream) = connect_to(port).await?;
+
+                // Check if greeting is sent by the server
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line[..(4 + MY_NAME.len())], format!("220 {}", MY_NAME));
+
+                // --------------------------
+                // Nothing is accepted but Helo, Ehlo, Reset or Noop
+                stream.write_all(b"INVALID\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "502 Command not implemented".to_string());
+
+                stream
+                    .write_all(b"MAIL FROM:<test@example.org>\r\n")
+                    .await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "503 Bad sequence of commands".to_string());
+
+                stream.write_all(b"RCPT TO:<test@example.org>\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "503 Bad sequence of commands".to_string());
+
+                stream.write_all(b"DATA\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "503 Bad sequence of commands".to_string());
+
+                stream.write_all(b"NOOP\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "250 OK".to_string());
+
+                stream
+                    .write_all(b"NOOP ignore the end of the line\r\n")
+                    .await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "250 OK".to_string());
+
+                stream.write_all(b"rSET\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "250 OK".to_string());
+
+                stream.write_all(b"HELO client\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, format!("250 {}", MY_NAME));
+
+                drop(lines);
+                drop(stream);
+
+                // --------------------------
+                // Second try as ehlo
+                let (mut lines, mut stream) = connect_to(port).await?;
+
+                // Greeting
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, format!("220 {} ESMTP", MY_NAME));
+
+                stream.write_all(b"eHLO client\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, format!("250 {}", MY_NAME));
+
+                // --------------------------
+                // From
+                stream
+                    .write_all(b"mAiL frOM:<from@example.org>\r\n")
+                    .await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "250 OK".to_string());
+
+                // --------------------------
+                // To
+                stream.write_all(b"RCpT tO:<to@example.net>\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "250 OK".to_string());
+
+                stream.write_all(b"rcpt TO:<to@example.org>\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "250 OK".to_string());
+
+                // --------------------------
+                // Begin data
+                stream.write_all(b"DATA\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(&line[..4], "354 ");
+
+                stream
+                    .write_all(
+                        b"From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;\r\n\
+To: =?ISO-8859-1?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>;\r\n\
+CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>;\r\n\
+Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
+ =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=\r\n\
+\r\n\
+.This is the content of this mail... but it says nothing now.\r\n\
+\r\n\
+.\r\n",
+                    )
+                    .await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(line, "250 OK");
+
+                // --------------------------
+                // Check the received mail
+                let mail = receiver.next().await.unwrap();
+
+                // --------------------------
+                // Close connection
+                stream.write_all(b"quit\r\n").await?;
+                let line = lines.next().await.unwrap();
+                let line = line?;
+                assert_eq!(
+                    line[..(4 + MY_NAME.len())].to_string(),
+                    format!("221 {}", MY_NAME)
+                );
+
+                let raw = mail.get_data(&Type::Raw).unwrap();
+                assert_eq!(
+                    raw,
+                    "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;\r\n\
+To: =?ISO-8859-1?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>;\r\n\
+CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>;\r\n\
+Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
+ =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=\r\n\
+\r\n\
+This is the content of this mail... but it says nothing now.\r\n"
+                );
+
+                Ok(())
+            };
+
+            let fut = serve
+                .try_race(fut)
+                .timeout(Duration::from_millis(5000))
+                .await;
+            println!("{:?}", fut);
+
+            Ok(())
+        }
+
+        task::block_on(async {
+            async_test().await.unwrap();
+        })
     }
 }
