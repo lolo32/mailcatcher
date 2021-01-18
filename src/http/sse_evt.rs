@@ -45,8 +45,45 @@ impl<'a> From<SseEvt> for SseData<'a> {
             },
             SseEvt::Ping => SseData {
                 name: "ping",
-                data: Cow::Borrowed("💓"),
+                data: Cow::Borrowed("\u{1f493}"),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn convert_to_sse_data() {
+        let sse_evt = SseEvt::Ping;
+        let data: SseData = sse_evt.into();
+        assert_eq!(data.name, "ping");
+        assert_eq!(data.data, "💓");
+
+        let id = Ulid::new();
+        let sse_evt = SseEvt::DelMail(id);
+        let data: SseData = sse_evt.into();
+        assert_eq!(data.name, "delMail");
+        assert_eq!(data.data, id.to_string());
+
+        let mail = Mail::new(
+            "from@example.org",
+            &["to@example.net".into()],
+            r"Date: Sun, 22 Nov 2020 01:58:23 +0100
+To: to@mail.com
+From: from@mail.com
+Subject: test Sun, 22 Nov 2020 01:58:23 +0100
+Message-Id: <20201122015818.087219@example.net>
+X-Mailer: swaks v20201014.0 jetmore.org/john/code/swaks/
+
+This is a test mailing",
+        );
+        let id = mail.get_id();
+        let sse_evt = SseEvt::NewMail(mail);
+        let data: SseData = sse_evt.into();
+        assert_eq!(data.name, "newMail");
+        assert_eq!(data.data, format!("{{\"date\":1606006703,\"from\":\"from@example.org\",\"id\":\"{}\",\"size\":248,\"subject\":\"test Sun, 22 Nov 2020 01:58:23 +0100\",\"to\":[\"to@example.net\"]}}", id));
     }
 }
