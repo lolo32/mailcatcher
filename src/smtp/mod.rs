@@ -549,17 +549,19 @@ This is the content of this mail... but it says nothing now.\r\n"
                 Ok(())
             };
 
-            let fut = serve
+            serve
                 .try_race(fut)
                 .timeout(Duration::from_millis(5000))
-                .await;
-            println!("{:?}", fut);
-
-            Ok(())
+                .await
+                .unwrap()
         }
 
         task::block_on(async {
-            async_test().await.unwrap();
+            async_test()
+                .timeout(Duration::from_millis(5000))
+                .await
+                .unwrap()
+                .unwrap()
         })
     }
 }

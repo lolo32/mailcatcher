@@ -1,9 +1,20 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use fake::{
+    faker::{
+        chrono::en::DateTimeBetween,
+        internet::en::{FreeEmailProvider, SafeEmail},
+        lorem::en::{Paragraphs, Words},
+        name::en::Name,
+    },
+    Fake,
+};
+use log::trace;
+use serde_json::Value;
+use textwrap::wrap;
 use tide::prelude::json;
 use ulid::Ulid;
 
 use crate::encoding::decode_string;
-use serde_json::Value;
 
 pub mod broker;
 
@@ -205,6 +216,71 @@ impl Mail {
             "date": self.get_date().timestamp(),
             "size": self.get_size(),
         })
+    }
+
+    pub fn fake() -> Self {
+        fn make_first_uppercase(s: &str) -> String {
+            format!(
+                "{}{}",
+                s.get(0..1).unwrap().to_uppercase(),
+                s.get(1..).unwrap()
+            )
+        }
+
+        // Expeditor mail address
+        let from: String = SafeEmail().fake();
+        let from_name: String = Name().fake();
+        // Recipient mail address
+        let to: String = SafeEmail().fake();
+        let to_name: String = Name().fake();
+        // Mail subject
+        let subject: Vec<String> = Words(5..10).fake();
+        let subject = make_first_uppercase(&subject.join(" "));
+        // Body content
+        let body = {
+            let mut body: Vec<String> = Paragraphs(1..8).fake();
+            body[0] = format!("Lorem ipsum dolor sit amet, {}", body[0]);
+            let body = body
+                .iter()
+                .map(|s| {
+                    s.split('\n')
+                        .map(|s| make_first_uppercase(s))
+                        .collect::<Vec<String>>()
+                        .join("  ")
+                })
+                .collect::<Vec<String>>();
+            wrap(&body.join("\r\n\r\n"), 72).join("\r\n")
+        };
+        // Mail Date
+        let date: DateTime<Utc> = DateTimeBetween(
+            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp(
+                Utc::now().timestamp() - 15_552_000,
+                0,
+            )),
+            Utc::now(),
+        )
+        .fake();
+
+        let data = format!(
+            "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
+            date.to_rfc2822(),
+            from_name,
+            from,
+            to_name,
+            to,
+            subject,
+            date.timestamp(),
+            date.timestamp_millis(),
+            FreeEmailProvider().fake::<String>(),
+            body,
+        );
+        trace!("Faking new mail:\n{}", data);
+
+        Mail::new(
+            &format!("{}<{}>", from_name, from),
+            &[format!("{}<{}>", to_name, to)],
+            &data,
+        )
     }
 }
 

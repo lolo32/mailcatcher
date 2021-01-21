@@ -15,7 +15,7 @@ use log::{debug, error, info, trace};
 use tide::{
     http::{headers, mime, Mime},
     prelude::{json, Listener},
-    Body, Request, Response, StatusCode,
+    Body, Request, Response, Server, StatusCode,
 };
 use ulid::Ulid;
 
@@ -41,14 +41,13 @@ where
 }
 
 pub struct Params {
-    pub port: u16,
     pub mail_broker: Sender<MailEvt>,
     pub rx_mails: Receiver<Mail>,
     #[cfg(feature = "fake")]
     pub tx_new_mail: Sender<Mail>,
 }
 
-pub async fn serve_http(params: Params) -> crate::Result<()> {
+pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> {
     // Stream reader and writer for SSE notifications
     let sse_stream = BroadcastChannel::new();
 
@@ -213,86 +212,13 @@ pub async fn serve_http(params: Params) -> crate::Result<()> {
     #[cfg(feature = "fake")]
     {
         async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
-            use crate::utils::wrap;
-            use chrono::{offset::Utc, DateTime, NaiveDateTime, TimeZone};
-            use fake::{
-                faker::{
-                    chrono::en::DateTimeBetween,
-                    internet::en::{FreeEmailProvider, SafeEmail},
-                    lorem::en::{Paragraphs, Words},
-                    name::en::Name,
-                },
-                Fake,
-            };
-
-            fn make_first_uppercase(s: &str) -> String {
-                format!(
-                    "{}{}",
-                    s.get(0..1).unwrap().to_uppercase(),
-                    s.get(1..).unwrap()
-                )
-            }
-
             let nb = req
                 .param("nb")
                 .map(|nb| usize::from_str_radix(nb, 10).unwrap_or(1))
                 .unwrap_or(1);
 
             for _ in 0..nb {
-                // Expeditor mail address
-                let from: String = SafeEmail().fake();
-                let from_name: String = Name().fake();
-                // Recipient mail address
-                let to: String = SafeEmail().fake();
-                let to_name: String = Name().fake();
-                // Mail subject
-                let subject: Vec<String> = Words(5..10).fake();
-                let subject = make_first_uppercase(&subject.join(" "));
-                // Body content
-                let body = {
-                    let mut body: Vec<String> = Paragraphs(1..8).fake();
-                    body[0] = format!("Lorem ipsum dolor sit amet, {}", body[0]);
-                    let body = body
-                        .iter()
-                        .map(|s| {
-                            s.split('\n')
-                                .map(|s| make_first_uppercase(s))
-                                .collect::<Vec<String>>()
-                                .join("  ")
-                        })
-                        .collect::<Vec<String>>();
-                    wrap(&body.join("\r\n\r\n"), 72)
-                };
-                // Mail Date
-                let date: DateTime<Utc> = DateTimeBetween(
-                    Utc.from_utc_datetime(&NaiveDateTime::from_timestamp(
-                        Utc::now().timestamp() - 15_552_000,
-                        0,
-                    )),
-                    Utc::now(),
-                )
-                .fake();
-
-                let data = format!(
-                    "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
-                    date.to_rfc2822(),
-                    from_name,
-                    from,
-                    to_name,
-                    to,
-                    subject,
-                    date.timestamp(),
-                    date.timestamp_millis(),
-                    FreeEmailProvider().fake::<String>(),
-                    body,
-                );
-                trace!("Faking new mail:\n{}", data);
-
-                let mail = Mail::new(
-                    &format!("{}<{}>", from_name, from),
-                    &[format!("{}<{}>", to_name, to)],
-                    &data,
-                );
+                let mail = Mail::fake();
 
                 match req.state().new_fake_mail.send(mail).await {
                     Ok(()) => debug!("New faked mail sent!"),
@@ -309,10 +235,17 @@ pub async fn serve_http(params: Params) -> crate::Result<()> {
         app.at("/fake/:nb").get(faking);
     }
 
+    Ok(app)
+}
+
+pub async fn bind_http<T>(app: Server<State<T>>, port: u16) -> crate::Result<()>
+where
+    T: Send + Clone + 'static,
+{
     // Bind ports
     let mut listener = app
         .bind(
-            format!("localhost:{}", params.port)
+            format!("localhost:{}", port)
                 .to_socket_addrs()
                 .await?
                 .collect::<Vec<_>>(),
@@ -398,4 +331,166 @@ where
 
     // Return the Response with content
     response.body(&*content).build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mail::broker::mail_broker;
+    use async_std::{fs::File, path::Path};
+    use futures::AsyncReadExt;
+    use tide::http::{Method, Request, Response, Url};
+    use tide::prelude::{Deserialize, Serialize};
+
+    #[derive(Debug, PartialEq, Deserialize, Serialize)]
+    struct MailSummary {
+        id: String,
+        from: String,
+        to: Vec<String>,
+        subject: String,
+        date: i64,
+        size: usize,
+    }
+
+    #[test]
+    fn test_routes() {
+        task::block_on(async {
+            let (tx_mail_broker, rx_mail_broker) = channel::unbounded();
+            let (_tx_new_mail, rx_new_mail) = channel::bounded(1);
+            #[cfg(feature = "fake")]
+            let (tx_mail_from_smtp, _rx_mail_from_smtp) = channel::bounded(1);
+
+            // Provide some mails
+            let mut mails = Vec::new();
+            for _ in 0..10 {
+                let mail = Mail::fake();
+                mails.push(mail.clone());
+                tx_mail_broker.send(MailEvt::NewMail(mail)).await.unwrap();
+            }
+            spawn_task_and_swallow_log_errors(
+                "test_routes_mails".to_string(),
+                mail_broker(rx_mail_broker),
+            );
+
+            // Init the HTTP side
+            let params = Params {
+                mail_broker: tx_mail_broker,
+                rx_mails: rx_new_mail,
+                #[cfg(feature = "fake")]
+                tx_new_mail: tx_mail_from_smtp,
+            };
+            let app = serve_http(params).await.unwrap();
+
+            // Assets
+            for (filename, mime_type) in &[
+                ("home.html", mime::HTML),
+                ("w3.css", mime::CSS),
+                ("hyperapp.js", mime::JAVASCRIPT),
+            ] {
+                let url = if filename == &"home.html" {
+                    ""
+                } else {
+                    filename
+                };
+                let req = Request::new(
+                    Method::Get,
+                    Url::parse(&format!("http://localhost/{}", url)).unwrap(),
+                );
+                let mut res: Response = app.respond(req).await.unwrap();
+                assert_eq!(
+                    res.header(headers::CONTENT_TYPE).unwrap(),
+                    &mime_type.to_string()
+                );
+                let mut fs = File::open(Path::new("asset").join(filename)).await.unwrap();
+                let mut home_content = String::new();
+                let read = fs.read_to_string(&mut home_content).await.unwrap();
+                assert!(read > 0, "File content must have some bytes");
+                assert_eq!(read, home_content.len());
+                assert_eq!(res.body_string().await.unwrap(), home_content);
+            }
+
+            // Test deflate
+            {
+                let mut req = Request::new(Method::Get, Url::parse("http://localhost/").unwrap());
+                req.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
+                let mut res: Response = app.respond(req).await.unwrap();
+                assert_eq!(
+                    res.header(headers::CONTENT_TYPE).unwrap(),
+                    &mime::HTML.to_string()
+                );
+                assert_eq!(res.header(headers::CONTENT_ENCODING).unwrap(), "deflate");
+                let mut fs = File::open(Path::new("asset").join("home.html"))
+                    .await
+                    .unwrap();
+                let mut home_content = String::new();
+                let read = fs.read_to_string(&mut home_content).await.unwrap();
+                assert!(read > 0, "File content must have some bytes");
+                assert_eq!(read, home_content.len());
+                let res_content = res.body_bytes().await.unwrap();
+                // Deflate the content
+                let res_content = miniz_oxide::inflate::decompress_to_vec(&res_content).unwrap();
+                let res_content = String::from_utf8(res_content).unwrap();
+                assert_eq!(res_content, home_content);
+            }
+
+            // Get all mails
+            {
+                let req = Request::new(Method::Get, Url::parse("http://localhost/mails").unwrap());
+                let mut res: Response = app.respond(req).await.unwrap();
+                assert_eq!(
+                    res.header(headers::CONTENT_TYPE).unwrap(),
+                    &mime::JSON.to_string()
+                );
+                let mut mails = mails
+                    .iter()
+                    .map(|mail| serde_json::from_value::<MailSummary>(mail.summary()).unwrap())
+                    .collect::<Vec<_>>();
+                mails.sort_by(|a, b| a.id.cmp(&b.id));
+                let txt = res.body_string().await.unwrap();
+                let mut txt: Vec<MailSummary> = serde_json::from_str(&txt).unwrap();
+                txt.sort_by(|a, b| a.id.cmp(&b.id));
+                assert_eq!(mails, txt);
+            }
+
+            // Get one mail
+            {
+                #[derive(Debug, Serialize, Deserialize, PartialEq)]
+                struct MailAll {
+                    headers: Vec<String>,
+                    raw: Vec<String>,
+                    data: String,
+                }
+                let mail = &mails[0];
+
+                // Non existent mail id
+                let req = Request::new(Method::Get, Url::parse("http://localhost/mail/1").unwrap());
+                let res: Response = app.respond(req).await.unwrap();
+                assert_eq!(res.status(), StatusCode::NotFound);
+
+                // Valid mail id
+                let req = Request::new(
+                    Method::Get,
+                    Url::parse(&format!(
+                        "http://localhost/mail/{}",
+                        mail.get_id().to_string()
+                    ))
+                    .unwrap(),
+                );
+                let mut res: Response = app.respond(req).await.unwrap();
+                assert_eq!(
+                    res.header(headers::CONTENT_TYPE).unwrap(),
+                    &mime::JSON.to_string()
+                );
+                let mail = serde_json::from_value::<MailAll>(json!({
+                    "headers": mail.get_headers(HeaderRepresentation::Humanized),
+                    "raw": mail.get_headers(HeaderRepresentation::Raw),
+                    "data": mail.get_text().unwrap().clone(),
+                }))
+                .unwrap();
+                let txt =
+                    serde_json::from_str::<MailAll>(&res.body_string().await.unwrap()).unwrap();
+                assert_eq!(mail, txt);
+            }
+        });
+    }
 }

@@ -98,7 +98,6 @@ mod tests {
 
     #[test]
     fn hex_decoding() {
-        println!("{:?}", HEX_BYTE.keys().collect::<Vec<&String>>());
         assert_eq!(HEX_BYTE[&"00".to_string()], 0);
         assert_eq!(HEX_BYTE[&"10".to_string()], 0x10);
         assert_eq!(HEX_BYTE[&"FF".to_string()], 255);

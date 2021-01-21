@@ -8,7 +8,7 @@ use log::{debug, error, info, trace};
 use structopt::StructOpt;
 
 use crate::{
-    http::Params,
+    http::{bind_http, Params},
     mail::{
         broker::{mail_broker, MailEvt},
         Mail,
@@ -78,7 +78,6 @@ async fn main_fut(opt: Opt) -> crate::Result<()> {
     let (tx_new_mail, rx_new_mail) = channel::bounded(1);
     let tx_http_new_mail = tx_mail_broker.clone();
     let http_params = Params {
-        port: opt.http,
         mail_broker: tx_mail_broker,
         rx_mails: rx_new_mail,
         #[cfg(feature = "fake")]
@@ -109,7 +108,7 @@ async fn main_fut(opt: Opt) -> crate::Result<()> {
         opt.use_starttls,
     );
     // Starting HTTP side
-    let h = http::serve_http(http_params);
+    let http_app = http::serve_http(http_params).await?;
 
     // Open browser window at start if specified
     if opt.browser {
@@ -117,7 +116,9 @@ async fn main_fut(opt: Opt) -> crate::Result<()> {
     }
 
     // Waiting for both to complete
-    s.try_join(h).try_join(mail_broker).await?;
+    s.try_join(bind_http(http_app, opt.http))
+        .try_join(mail_broker)
+        .await?;
 
     unreachable!()
 }

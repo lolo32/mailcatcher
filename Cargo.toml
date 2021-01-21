@@ -42,7 +42,6 @@ version = "0.8.2"
 [dependencies.fake]
 version = "2.4.0"
 features = ["chrono"]
-optional = true
 
 [dependencies.fnv]
 version = "1.0.7"
@@ -76,6 +75,9 @@ default-features = false
 # feature std needed by regex
 features = ["std"]
 
+[dependencies.serde]
+version = "1.0.120"
+
 [dependencies.serde_json]
 version = "1.0.61"
 default-features = false
@@ -84,6 +86,9 @@ features = ["alloc"]
 [dependencies.structopt]
 version = "0.3.21"
 default-features = false
+
+[dependencies.textwrap]
+version = "0.13.2"
 
 [dependencies.tide]
 version = "0.15.0"
