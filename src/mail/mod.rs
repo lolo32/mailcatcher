@@ -218,6 +218,7 @@ impl Mail {
         })
     }
 
+    #[allow(unused)]
     pub fn fake() -> Self {
         fn make_first_uppercase(s: &str) -> String {
             format!(
