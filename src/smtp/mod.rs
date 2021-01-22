@@ -4,6 +4,7 @@ use async_std::{
     channel::Sender,
     io::BufReader,
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    task,
 };
 use futures::{
     stream::FuturesUnordered,
@@ -40,8 +41,17 @@ pub async fn serve_smtp(
 
     // For each socket address IPv4/IPv6 ...
     addr.iter()
+        // ... bind TCP port for each address ...
+        .map(bind)
         // ... spawn a handler to process incoming connection
-        .map(|a| accept_loop(a, server_name, mails_broker.clone(), use_starttls))
+        .map(|listener| {
+            accept_loop(
+                listener.unwrap(),
+                server_name,
+                mails_broker.clone(),
+                use_starttls,
+            )
+        })
         .collect::<FuturesUnordered<_>>()
         .skip_while(|r| future::ready(r.is_ok()))
         .take(1)
@@ -55,17 +65,22 @@ pub async fn serve_smtp(
 }
 
 /// Handler that deals to a single socket address
+fn bind(addr: &SocketAddr) -> crate::Result<TcpListener> {
+    // Bind to the address
+    task::block_on(async move {
+        TcpListener::bind(addr)
+            .await
+            .map_err(|e| format!("Unable to bind {:?}: {}", addr, e).into())
+    })
+}
+
+/// Handler that deals to a single socket address
 async fn accept_loop(
-    addr: &SocketAddr,
+    listener: TcpListener,
     server_name: &str,
     mails_broker: Sender<Mail>,
     use_starttls: bool,
 ) -> crate::Result<()> {
-    // Bind to the address
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|e| format!("Unable to bind {:?}: {}", addr, e))?;
-
     // Listen to incoming connection
     let mut incoming = listener.incoming();
     info!("SMTP listening on {:?}", listener.local_addr()?);
