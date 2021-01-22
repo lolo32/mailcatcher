@@ -6,6 +6,8 @@
     <link href="w3.css" rel="stylesheet">
     <style>
         .mail {cursor: pointer}
+        .mail div span {font-weight: bold}
+        .mail div em {word-wrap: anywhere}
         .since, .size {font-style: italic}
     </style>
     <script type="module">
@@ -184,9 +186,15 @@
                 ],
             }, [
                 // Recipient
-                h("div", {}, text(`To: ${mail.to.join(", ")}`)),
+                h("div", {}, [
+                    h("span", {}, text("To: ")),
+                    h("em", {}, text(`${mail.to.join(", ")}`)),
+                ]),
                 // Subject
-                h("div", {}, text(`Sub: ${mail.subject}`)),
+                h("div", {}, [
+                    h("span", {}, text("Subject: ")),
+                    h("em", {}, text(mail.subject)),
+                ]),
                 // Details
                 h("div", {class: "w3-row"}, [
                     // Date
