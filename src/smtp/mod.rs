@@ -17,8 +17,8 @@ use crate::{
     smtp::command::Command,
     utils::{spawn_task_and_swallow_log_errors, ConnectionInfo},
 };
-use futures::io::Lines;
 use async_std::net::Incoming;
+use futures::io::Lines;
 
 mod command;
 
@@ -91,7 +91,8 @@ async fn accept_loop(
     loop {
         if let Some(stream) = incoming.next().await {
             let stream: TcpStream = stream?;
-            let conn: ConnectionInfo = ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
+            let conn: ConnectionInfo =
+                ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
             info!("Accepting new connection from: {}", stream.peer_addr()?);
             // Spawn local processing
             spawn_task_and_swallow_log_errors(
@@ -350,7 +351,8 @@ impl<'a> Smtp<'a> {
             Command::DataEnd => {
                 trace!("{}", self.data);
                 // Instantiate a new mail
-                let mail:Mail  = Mail::new(self.addr_from.as_ref().unwrap(), &self.addr_to, &self.data);
+                let mail: Mail =
+                    Mail::new(self.addr_from.as_ref().unwrap(), &self.addr_to, &self.data);
 
                 self.receive_data = false;
                 self.addr_from = None;
@@ -398,7 +400,6 @@ mod tests {
     use crate::mail::Type;
 
     use super::*;
-    use async_std::channel::Receiver;
 
     async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
         let stream: TcpStream = TcpStream::connect(format!("localhost:{}", port)).await?;
@@ -418,7 +419,7 @@ mod tests {
             let port: u16 = tcp.local_addr().unwrap().port();
             drop(tcp);
 
-            let (sender, mut receiver): (Sender<Mail>, Receiver<Mail>) = bounded(1);
+            let (sender, mut receiver): crate::Channel<Mail> = bounded(1);
 
             let serve = serve_smtp(port, MY_NAME, sender, false);
 

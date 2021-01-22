@@ -66,7 +66,7 @@ impl Default for ConnectionInfo {
 
 impl fmt::Display for ConnectionInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let peer:String = if let Some(addr) = self.peer_addr {
+        let peer: String = if let Some(addr) = self.peer_addr {
             addr.to_string()
         } else {
             "Unknown".to_string()

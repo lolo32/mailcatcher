@@ -12,7 +12,11 @@ use futures::{
     StreamExt,
 };
 use log::{debug, error, info, trace};
-use tide::{http::{headers, mime, Mime}, prelude::{json, Listener}, Body, Request, Response, Server, StatusCode, ResponseBuilder};
+use tide::{
+    http::{headers, mime, Mime},
+    prelude::{json, Listener},
+    Body, Request, Response, ResponseBuilder, Server, StatusCode,
+};
 use ulid::Ulid;
 
 use crate::{
@@ -104,7 +108,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     // Get all mail list
     app.at("/mails")
         .get(|req: Request<State<SseEvt>>| async move {
-            let (s, mut r): (Sender<Mail>, Receiver<Mail>) = channel::unbounded();
+            let (s, mut r): crate::Channel<Mail> = channel::unbounded();
             req.state().mail_broker.send(MailEvt::GetAll(s)).await?;
 
             let mut resp: Vec<serde_json::Value> = Vec::new();
@@ -173,7 +177,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     // Remove all mails
     app.at("/remove/all")
         .get(|req: Request<State<SseEvt>>| async move {
-            let (s, mut r): (Sender<Ulid>, Receiver<Ulid>) = channel::unbounded();
+            let (s, mut r): crate::Channel<Ulid> = channel::unbounded();
             req.state().mail_broker.send(MailEvt::RemoveAll(s)).await?;
             let mut nb: usize = 0;
             while let Some(id) = r.next().await {
@@ -190,7 +194,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
         .get(|req: Request<State<SseEvt>>| async move {
             let id: &str = req.param("id")?;
             if let Ok(id) = Ulid::from_string(id) {
-                let (s, mut r): (Sender<Option<Ulid>>, Receiver<Option<Ulid>>) = channel::bounded(1);
+                let (s, mut r): crate::Channel<Option<Ulid>> = channel::bounded(1);
                 req.state().mail_broker.send(MailEvt::Remove(s, id)).await?;
                 let mail: Option<Ulid> = r.next().await.unwrap();
                 if mail.is_some() {
@@ -266,7 +270,7 @@ where
     let id: &str = req.param("id")?;
     // Convert ID string to Ulid
     Ok(if let Ok(id) = Ulid::from_string(id) {
-        let (s, mut r): (Sender<Option<Mail>>, Receiver<Option<Mail>>) = channel::bounded(1);
+        let (s, mut r): crate::Channel<Option<Mail>> = channel::bounded(1);
         req.state()
             .mail_broker
             .send(MailEvt::GetMail(s, id))
@@ -351,10 +355,13 @@ mod tests {
     #[test]
     fn test_routes() {
         task::block_on(async {
-            let (tx_mail_broker, rx_mail_broker): (Sender<MailEvt>, Receiver<MailEvt>) = channel::unbounded();
-            let (tx_new_mail, rx_new_mail): (Sender<Mail>, Receiver<Mail>) = channel::bounded(1);
+            let (tx_mail_broker, rx_mail_broker): crate::Channel<MailEvt> = channel::unbounded();
+            let (_tx_new_mail, rx_new_mail): crate::Channel<Mail> = channel::bounded(1);
             #[cfg(feature = "faking")]
-            let (tx_mail_from_smtp, _rx_mail_from_smtp): (Sender<Mail>, Receiver<Mail>) = channel::bounded(1);
+            let (tx_mail_from_smtp, _rx_mail_from_smtp): (
+                Sender<Mail>,
+                Receiver<Mail>,
+            ) = channel::bounded(1);
 
             // Provide some mails
             let mut mails: Vec<Mail> = Vec::new();
@@ -407,7 +414,8 @@ mod tests {
 
             // Test deflate
             {
-                let mut req: Request = Request::new(Method::Get, Url::parse("http://localhost/").unwrap());
+                let mut req: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/").unwrap());
                 req.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
                 let mut res: Response = app.respond(req).await.unwrap();
                 assert_eq!(
@@ -424,14 +432,16 @@ mod tests {
                 assert_eq!(read, home_content.len());
                 let res_content: Vec<u8> = res.body_bytes().await.unwrap();
                 // Deflate the content
-                let res_content: Vec<u8> = miniz_oxide::inflate::decompress_to_vec(&res_content).unwrap();
+                let res_content: Vec<u8> =
+                    miniz_oxide::inflate::decompress_to_vec(&res_content).unwrap();
                 let res_content: String = String::from_utf8(res_content).unwrap();
                 assert_eq!(res_content, home_content);
             }
 
             // Get all mails
             {
-                let req: Request = Request::new(Method::Get, Url::parse("http://localhost/mails").unwrap());
+                let req: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/mails").unwrap());
                 let mut res: Response = app.respond(req).await.unwrap();
                 assert_eq!(
                     res.header(headers::CONTENT_TYPE).unwrap(),
@@ -459,7 +469,8 @@ mod tests {
                 let mail: &Mail = &mails[0];
 
                 // Non existent mail id
-                let req: Request = Request::new(Method::Get, Url::parse("http://localhost/mail/1").unwrap());
+                let req: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/mail/1").unwrap());
                 let res: Response = app.respond(req).await.unwrap();
                 assert_eq!(res.status(), StatusCode::NotFound);
 
@@ -483,8 +494,7 @@ mod tests {
                     "data": mail.get_text().unwrap().clone(),
                 }))
                 .unwrap();
-                let txt: MailAll =
-                    serde_json::from_str(&res.body_string().await.unwrap()).unwrap();
+                let txt: MailAll = serde_json::from_str(&res.body_string().await.unwrap()).unwrap();
                 assert_eq!(mail, txt);
             }
         });

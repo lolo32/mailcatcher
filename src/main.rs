@@ -7,6 +7,8 @@ use futures::StreamExt;
 use log::{debug, error, info, trace};
 use structopt::StructOpt;
 
+use crate::http::sse_evt::SseEvt;
+use crate::http::State;
 use crate::{
     http::{bind_http, Params},
     mail::{
@@ -16,8 +18,6 @@ use crate::{
     utils::spawn_task_and_swallow_log_errors,
 };
 use tide::Server;
-use crate::http::State;
-use crate::http::sse_evt::SseEvt;
 
 mod encoding;
 mod http;
@@ -27,6 +27,8 @@ mod utils;
 
 // Result type commonly used in this crate
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+type Channel<T> = (Sender<T>, Receiver<T>);
 
 #[derive(Debug, StructOpt)]
 #[structopt(about, author)]
@@ -72,13 +74,12 @@ async fn main_fut(opt: Opt) -> crate::Result<()> {
     );
 
     // Channels used to notify a new mail arrived in SMTP side to HTTP side
-    let (tx_mail_from_smtp, mut rx_mail_from_smtp): (Sender<Mail>, Receiver<Mail>) =
-        channel::bounded(1);
-    let (tx_mail_broker, rx_mail_broker): (Sender<MailEvt>, Receiver<MailEvt>) = channel::unbounded();
+    let (tx_mail_from_smtp, mut rx_mail_from_smtp): crate::Channel<Mail> = channel::bounded(1);
+    let (tx_mail_broker, rx_mail_broker): crate::Channel<MailEvt> = channel::unbounded();
 
     let mail_broker = mail_broker(rx_mail_broker);
 
-    let (tx_new_mail, rx_new_mail):(Sender<Mail>, Receiver<Mail>) = channel::bounded(1);
+    let (tx_new_mail, rx_new_mail): crate::Channel<Mail> = channel::bounded(1);
     let tx_http_new_mail: Sender<MailEvt> = tx_mail_broker.clone();
     let http_params: Params = Params {
         mail_broker: tx_mail_broker,

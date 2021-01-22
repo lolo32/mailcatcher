@@ -89,7 +89,7 @@ This is a test mailing";
     #[test]
     fn test_mail_broker() {
         task::block_on(async {
-            let (sender, receiver): (Sender<MailEvt>, Receiver<MailEvt>) = channel::unbounded();
+            let (sender, receiver): crate::Channel<MailEvt> = channel::unbounded();
 
             // Launch and process commands
             assert!(mail_broker(receiver)
@@ -110,7 +110,7 @@ This is a test mailing";
                     // Test getting 1 mail by id
                     // -----------------------
 
-                    let (s, mut r): (Sender<Option<Mail>>, Receiver<Option<Mail>>) = channel::unbounded();
+                    let (s, mut r): crate::Channel<Option<Mail>> = channel::unbounded();
 
                     // Stream for unknown id
                     sender
@@ -137,7 +137,7 @@ This is a test mailing";
                     // Retrieve all mails
                     // -----------------------
 
-                    let (s, mut r): (Sender<Mail>, Receiver<Mail>) = channel::unbounded();
+                    let (s, mut r): crate::Channel<Mail> = channel::unbounded();
 
                     sender.send(MailEvt::GetAll(s)).await.unwrap();
                     let mut nb: usize = 0;
@@ -157,7 +157,7 @@ This is a test mailing";
                     // Test removing 1 mail
                     // -----------------------
 
-                    let (s, mut r): (Sender<Option<Ulid>>, Receiver<Option<Ulid>>) = channel::unbounded();
+                    let (s, mut r): crate::Channel<Option<Ulid>> = channel::unbounded();
 
                     //  ... for unknown id
                     sender
@@ -182,7 +182,7 @@ This is a test mailing";
                     // Test removing all mails from tha pool
                     // -----------------------
 
-                    let (s, mut r): (Sender<Ulid>, Receiver<Ulid>) = channel::unbounded();
+                    let (s, mut r): crate::Channel<Ulid> = channel::unbounded();
 
                     // ... ask to remove all mails
                     sender.send(MailEvt::RemoveAll(s)).await.unwrap();
