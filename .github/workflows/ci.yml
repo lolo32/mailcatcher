@@ -93,12 +93,22 @@ jobs:
           toolchain: nightly
           override: true
 
-      # Runs the units tests
+      # Runs the units tests in Debug mode
       - name: Execute tests
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --all-features
+        env:
+          CARGO_INCREMENTAL: 0
+          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
+
+      # Runs the units tests in Release mode
+      - name: Execute tests in Release
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features --release
         env:
           CARGO_INCREMENTAL: 0
           RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
