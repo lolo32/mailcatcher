@@ -15,6 +15,7 @@ members = [
 ]
 
 [features]
+faking = []
 
 [dependencies.async-std]
 version = "1.9.0"

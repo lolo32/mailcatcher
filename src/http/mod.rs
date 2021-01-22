@@ -36,14 +36,14 @@ where
 {
     sse_stream: BroadcastChannel<T, UnboundedSender<T>, UnboundedReceiver<T>>,
     mail_broker: Sender<MailEvt>,
-    #[cfg(feature = "fake")]
+    #[cfg(feature = "faking")]
     new_fake_mail: Sender<Mail>,
 }
 
 pub struct Params {
     pub mail_broker: Sender<MailEvt>,
     pub rx_mails: Receiver<Mail>,
-    #[cfg(feature = "fake")]
+    #[cfg(feature = "faking")]
     pub tx_new_mail: Sender<Mail>,
 }
 
@@ -91,7 +91,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     let state = State {
         sse_stream,
         mail_broker: params.mail_broker,
-        #[cfg(feature = "fake")]
+        #[cfg(feature = "faking")]
         new_fake_mail: params.tx_new_mail,
     };
     let mut app = tide::with_state(state);
@@ -209,7 +209,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     // SSE stream
     app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
 
-    #[cfg(feature = "fake")]
+    #[cfg(feature = "faking")]
     {
         async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
             let nb = req
@@ -357,7 +357,7 @@ mod tests {
         task::block_on(async {
             let (tx_mail_broker, rx_mail_broker) = channel::unbounded();
             let (_tx_new_mail, rx_new_mail) = channel::bounded(1);
-            #[cfg(feature = "fake")]
+            #[cfg(feature = "faking")]
             let (tx_mail_from_smtp, _rx_mail_from_smtp) = channel::bounded(1);
 
             // Provide some mails
@@ -376,7 +376,7 @@ mod tests {
             let params = Params {
                 mail_broker: tx_mail_broker,
                 rx_mails: rx_new_mail,
-                #[cfg(feature = "fake")]
+                #[cfg(feature = "faking")]
                 tx_new_mail: tx_mail_from_smtp,
             };
             let app = serve_http(params).await.unwrap();

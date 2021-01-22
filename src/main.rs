@@ -80,7 +80,7 @@ async fn main_fut(opt: Opt) -> crate::Result<()> {
     let http_params = Params {
         mail_broker: tx_mail_broker,
         rx_mails: rx_new_mail,
-        #[cfg(feature = "fake")]
+        #[cfg(feature = "faking")]
         tx_new_mail: tx_mail_from_smtp.clone(),
     };
     spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
