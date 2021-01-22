@@ -11,7 +11,7 @@ lazy_static! {
     static ref RE_QUOTE: regex::bytes::Regex =
         regex::bytes::Regex::new("\x3D([\x30-\x39\x41-\x46]{2})").unwrap();
     static ref HEX_BYTE: fnv::FnvHashMap<String, u8> = {
-        let mut m = fnv::FnvHashMap::default();
+        let mut m: fnv::FnvHashMap<String, u8> = fnv::FnvHashMap::default();
         // Insert with 0 leading
         for i in 0x00..=0xFF {
             m.insert(format!("{:02X}", i), i);
@@ -21,7 +21,7 @@ lazy_static! {
 }
 
 pub fn decode_string(string: &str) -> String {
-    let mut string = string.to_string();
+    let mut string: String = string.to_string();
     while RE_REMOVE_SPACE.is_match(&string) {
         string = RE_REMOVE_SPACE
             .replace_all(&string, |caps: &Captures| {
@@ -34,11 +34,11 @@ pub fn decode_string(string: &str) -> String {
 
 fn rfc2047_decode(caps: &Captures) -> String {
     if let Some(dec) = encoding_from_whatwg_label(&caps["charset"].to_lowercase()) {
-        let text = match caps["encoding"].to_lowercase().as_str() {
+        let text: Vec<u8> = match caps["encoding"].to_lowercase().as_str() {
             "b" => base64::decode(&caps["encoded_text"])
                 .unwrap_or_else(|_| b"/!\\ Invalid Base64 encoding /!\\".to_vec()),
             "q" => {
-                let text = caps["encoded_text"].replace("_", "\u{20}");
+                let text: String = caps["encoded_text"].replace("_", "\u{20}");
                 RE_QUOTE.replace_all(text.as_bytes(), replace_byte).to_vec()
             }
             _ => panic!("Illegal encoding"),
@@ -53,7 +53,7 @@ fn rfc2047_decode(caps: &Captures) -> String {
 }
 
 fn replace_byte(caps: &regex::bytes::Captures) -> Vec<u8> {
-    let index = String::from_utf8((&caps[1]).to_vec()).unwrap();
+    let index: String = String::from_utf8((&caps[1]).to_vec()).unwrap();
     vec![HEX_BYTE[&index]]
 }
 
@@ -63,24 +63,24 @@ mod tests {
 
     #[test]
     fn decode_string_literal() {
-        let text = "Subject: This is a simple literal string";
-        let a = decode_string(text);
+        let text: &str = "Subject: This is a simple literal string";
+        let a: String = decode_string(text);
 
         assert_eq!(a, text);
     }
 
     #[test]
     fn decode_string_unknown_charset() {
-        let text = "Subject: =?invalid-charset?B?This is a simple literal string?=";
-        let a = decode_string(text);
+        let text: &str = "Subject: =?invalid-charset?B?This is a simple literal string?=";
+        let a: String = decode_string(text);
 
         assert_eq!(a, text);
     }
 
     #[test]
     fn decode_string_base64_encoded() {
-        let text = "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?= =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=";
-        let a = decode_string(text);
+        let text:&str = "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?= =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=";
+        let a: String = decode_string(text);
 
         assert_eq!(
             a,
@@ -90,8 +90,8 @@ mod tests {
 
     #[test]
     fn decode_string_quoted_encoded() {
-        let text = "From: =?ISO-8859-1?Q?Patrik_F=E4ltstr=F6m?= <paf@nada.kth.se>";
-        let a = decode_string(text);
+        let text: &str = "From: =?ISO-8859-1?Q?Patrik_F=E4ltstr=F6m?= <paf@nada.kth.se>";
+        let a: String = decode_string(text);
 
         assert_eq!(a, "From: Patrik Fältström <paf@nada.kth.se>");
     }

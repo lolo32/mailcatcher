@@ -17,6 +17,8 @@ use crate::{
     smtp::command::Command,
     utils::{spawn_task_and_swallow_log_errors, ConnectionInfo},
 };
+use futures::io::Lines;
+use async_std::net::Incoming;
 
 mod command;
 
@@ -82,14 +84,14 @@ async fn accept_loop(
     use_starttls: bool,
 ) -> crate::Result<()> {
     // Listen to incoming connection
-    let mut incoming = listener.incoming();
+    let mut incoming: Incoming = listener.incoming();
     info!("SMTP listening on {:?}", listener.local_addr()?);
 
     // For each new connection
     loop {
         if let Some(stream) = incoming.next().await {
-            let stream = stream?;
-            let conn = ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
+            let stream: TcpStream = stream?;
+            let conn: ConnectionInfo = ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
             info!("Accepting new connection from: {}", stream.peer_addr()?);
             // Spawn local processing
             spawn_task_and_swallow_log_errors(
@@ -115,24 +117,24 @@ async fn connection_loop(
     mails_broker: Sender<Mail>,
 ) -> crate::Result<()> {
     // Initialize the SMTP connection
-    let mut smtp = Smtp::new(&stream, server_name, use_starttls);
+    let mut smtp: Smtp = Smtp::new(&stream, server_name, use_starttls);
 
     // Send SMTP banner to client
     smtp.send_server_name().await?;
 
     // Generate a line reader to process commands
-    let reader = BufReader::new(&stream);
-    let mut lines = reader.lines();
+    let reader: BufReader<&TcpStream> = BufReader::new(&stream);
+    let mut lines: Lines<BufReader<&TcpStream>> = reader.lines();
 
     // Begin command loop
     while let Some(line) = lines.next().await {
         // Process a new command line
-        let line = line?;
+        let line: String = line?;
         // Identify the action
-        let action = smtp.process_line(Cow::Owned(line));
+        let action: Command = smtp.process_line(Cow::Owned(line));
         trace!("{:?}", action);
         // Process the action
-        let mail = smtp.process_command(&action).await?;
+        let mail: Option<Mail> = smtp.process_command(&action).await?;
         // If a mail has been emitted, send it to the HTTP side
         if let Some(mail) = mail {
             mails_broker.send(mail).await?;
@@ -239,7 +241,7 @@ impl<'a> Smtp<'a> {
 
     /// Store a new line, removing any one dot at the beginning of a line
     fn push_data(&mut self, line: &str) {
-        let idx = if !line.is_empty() && &line[0..1] == "." {
+        let idx: usize = if !line.is_empty() && &line[0..1] == "." {
             1
         } else {
             0
@@ -290,7 +292,7 @@ impl<'a> Smtp<'a> {
             // The client is greeting to the server, so indicate if starttls is supported or not
             Command::Ehllo(remote_name) | Command::Hello(remote_name) => {
                 self.remote_name = Some(remote_name.clone());
-                let greeting = if self.use_starttls {
+                let greeting: String = if self.use_starttls {
                     format!("250-{}\r\n250 STARTTLS\r\n", self.server_name)
                 } else {
                     format!("250 {}\r\n", self.server_name)
@@ -348,7 +350,7 @@ impl<'a> Smtp<'a> {
             Command::DataEnd => {
                 trace!("{}", self.data);
                 // Instantiate a new mail
-                let mail = Mail::new(self.addr_from.as_ref().unwrap(), &self.addr_to, &self.data);
+                let mail:Mail  = Mail::new(self.addr_from.as_ref().unwrap(), &self.addr_to, &self.data);
 
                 self.receive_data = false;
                 self.addr_from = None;
@@ -396,12 +398,13 @@ mod tests {
     use crate::mail::Type;
 
     use super::*;
+    use async_std::channel::Receiver;
 
     async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
-        let stream = TcpStream::connect(format!("localhost:{}", port)).await?;
+        let stream: TcpStream = TcpStream::connect(format!("localhost:{}", port)).await?;
 
-        let reader = BufReader::new(stream.clone());
-        let lines = reader.lines();
+        let reader: BufReader<TcpStream> = BufReader::new(stream.clone());
+        let lines: Lines<BufReader<TcpStream>> = reader.lines();
 
         Ok((lines, stream))
     }
@@ -411,11 +414,11 @@ mod tests {
         async fn async_test() -> crate::Result<()> {
             const MY_NAME: &str = "UnitTest";
 
-            let tcp = TcpListener::bind("localhost:0").await?;
-            let port = tcp.local_addr().unwrap().port();
+            let tcp: TcpListener = TcpListener::bind("localhost:0").await?;
+            let port: u16 = tcp.local_addr().unwrap().port();
             drop(tcp);
 
-            let (sender, mut receiver) = bounded(1);
+            let (sender, mut receiver): (Sender<Mail>, Receiver<Mail>) = bounded(1);
 
             let serve = serve_smtp(port, MY_NAME, sender, false);
 
@@ -424,53 +427,53 @@ mod tests {
 
                 // Check if greeting is sent by the server
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line[..(4 + MY_NAME.len())], format!("220 {}", MY_NAME));
 
                 // --------------------------
                 // Nothing is accepted but Helo, Ehlo, Reset or Noop
                 stream.write_all(b"INVALID\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "502 Command not implemented".to_string());
 
                 stream
                     .write_all(b"MAIL FROM:<test@example.org>\r\n")
                     .await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "503 Bad sequence of commands".to_string());
 
                 stream.write_all(b"RCPT TO:<test@example.org>\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "503 Bad sequence of commands".to_string());
 
                 stream.write_all(b"DATA\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "503 Bad sequence of commands".to_string());
 
                 stream.write_all(b"NOOP\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "250 OK".to_string());
 
                 stream
                     .write_all(b"NOOP ignore the end of the line\r\n")
                     .await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "250 OK".to_string());
 
                 stream.write_all(b"rSET\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "250 OK".to_string());
 
                 stream.write_all(b"HELO client\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, format!("250 {}", MY_NAME));
 
                 drop(lines);
@@ -482,12 +485,12 @@ mod tests {
 
                 // Greeting
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, format!("220 {} ESMTP", MY_NAME));
 
                 stream.write_all(b"eHLO client\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, format!("250 {}", MY_NAME));
 
                 // --------------------------
@@ -496,26 +499,26 @@ mod tests {
                     .write_all(b"mAiL frOM:<from@example.org>\r\n")
                     .await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "250 OK".to_string());
 
                 // --------------------------
                 // To
                 stream.write_all(b"RCpT tO:<to@example.net>\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "250 OK".to_string());
 
                 stream.write_all(b"rcpt TO:<to@example.org>\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "250 OK".to_string());
 
                 // --------------------------
                 // Begin data
                 stream.write_all(b"DATA\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(&line[..4], "354 ");
 
                 stream
@@ -532,18 +535,18 @@ Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
                     )
                     .await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(line, "250 OK");
 
                 // --------------------------
                 // Check the received mail
-                let mail = receiver.next().await.unwrap();
+                let mail: Mail = receiver.next().await.unwrap();
 
                 // --------------------------
                 // Close connection
                 stream.write_all(b"quit\r\n").await?;
                 let line = lines.next().await.unwrap();
-                let line = line?;
+                let line: String = line?;
                 assert_eq!(
                     line[..(4 + MY_NAME.len())].to_string(),
                     format!("221 {}", MY_NAME)

@@ -57,7 +57,7 @@ pub struct Mail {
 impl Mail {
     // Create a new mail
     pub fn new(from: &str, to: &[String], data: &str) -> Self {
-        let mut mail = Self {
+        let mut mail: Mail = Self {
             id: Ulid::new(),
             from: from.to_string(),
             to: to.to_vec(),
@@ -70,7 +70,7 @@ impl Mail {
         // Store RAW mail content
         mail.data.insert(Type::Raw, data.to_string());
 
-        let (headers, body) = Mail::split_header_body(data);
+        let (headers, body): (String, String) = Mail::split_header_body(data);
 
         // Parse the headers
         for header in headers.lines() {
@@ -89,7 +89,7 @@ impl Mail {
         mail.data.insert(Type::Text, body);
 
         // Extract Date
-        let date_header = mail.get_header_content("Date", HeaderRepresentation::Raw);
+        let date_header: Vec<String> = mail.get_header_content("Date", HeaderRepresentation::Raw);
         if let Some(date_str) = date_header.first() {
             if let Ok(local_date) = DateTime::parse_from_rfc2822(date_str.as_str()) {
                 mail.date = local_date.with_timezone(&Utc);
@@ -97,7 +97,8 @@ impl Mail {
         }
 
         // Extract Subject
-        let subject_header = mail.get_header_content("Subject", HeaderRepresentation::Raw);
+        let subject_header: Vec<String> =
+            mail.get_header_content("Subject", HeaderRepresentation::Raw);
         if let Some(subject) = subject_header.first() {
             mail.subject = subject.clone();
         }
@@ -106,7 +107,7 @@ impl Mail {
     }
 
     pub fn split_header_body(content: &str) -> (String, String) {
-        let mut headers = String::new();
+        let mut headers: String = String::new();
 
         // Iterator over lines
         let mut lines = content.lines();
@@ -122,7 +123,7 @@ impl Mail {
         }
 
         // Parse the body of the mail
-        let mut body = String::new();
+        let mut body: String = String::new();
         if let Some(line) = lines.next() {
             body.push_str(line);
         }
@@ -171,8 +172,8 @@ impl Mail {
     /// Retrieve the header content, from the key name
     /// The data can be in literal format or humanized
     pub fn get_header_content(&self, key: &str, raw: HeaderRepresentation) -> Vec<String> {
-        let key = format!("{}: ", key);
-        let key_len = key.len();
+        let key: String = format!("{}: ", key);
+        let key_len: usize = key.len();
 
         // Iterate over headers list to find the header
         self.get_headers(raw)
@@ -236,12 +237,12 @@ impl Mail {
         let to_name: String = Name().fake();
         // Mail subject
         let subject: Vec<String> = Words(5..10).fake();
-        let subject = make_first_uppercase(&subject.join(" "));
+        let subject: String = make_first_uppercase(&subject.join(" "));
         // Body content
-        let body = {
+        let body: String = {
             let mut body: Vec<String> = Paragraphs(1..8).fake();
             body[0] = format!("Lorem ipsum dolor sit amet, {}", body[0]);
-            let body = body
+            let body: Vec<String> = body
                 .iter()
                 .map(|s| {
                     s.split('\n')
@@ -249,7 +250,7 @@ impl Mail {
                         .collect::<Vec<String>>()
                         .join("  ")
                 })
-                .collect::<Vec<String>>();
+                .collect();
             wrap(&body.join("\r\n\r\n"), 72).join("\r\n")
         };
         // Mail Date
@@ -262,7 +263,7 @@ impl Mail {
         )
         .fake();
 
-        let data = format!(
+        let data: String = format!(
             "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
             date.to_rfc2822(),
             from_name,
@@ -312,7 +313,7 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn split_headers_body() {
-        let mail = Mail::new("from@example.com", &["to@example.com".into()], DATA_SIMPLE);
+        let mail: Mail = Mail::new("from@example.com", &["to@example.com".into()], DATA_SIMPLE);
 
         assert_eq!(mail.headers.len(), 6);
         assert_eq!(mail.from, "from@example.com");
@@ -327,20 +328,20 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn test_getting_datetime() {
-        let mail = Mail::new("", &[], DATA_SIMPLE);
+        let mail: Mail = Mail::new("", &[], DATA_SIMPLE);
 
-        let date = mail.get_date();
+        let date: DateTime<Utc> = mail.get_date();
         assert_eq!(date.timezone(), Utc);
 
-        let dt = Utc.ymd(2020, 11, 22).and_hms(0, 58, 23);
+        let dt: DateTime<Utc> = Utc.ymd(2020, 11, 22).and_hms(0, 58, 23);
         assert_eq!(date, dt);
     }
 
     #[test]
     fn get_text() {
-        let mail = Mail::new("", &[], DATA_SIMPLE);
+        let mail: Mail = Mail::new("", &[], DATA_SIMPLE);
 
-        let text = mail.get_text();
+        let text: Option<&String> = mail.get_text();
 
         assert!(text.is_some());
         assert_eq!(text.unwrap(), &"This is a test mailing\r\n\r\n".to_string());
@@ -350,8 +351,8 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn summary_is_json() {
-        let mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_SIMPLE);
-        let summary = mail.summary().to_string();
+        let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_SIMPLE);
+        let summary: String = mail.summary().to_string();
 
         assert_eq!(
             summary,
@@ -364,27 +365,28 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn multiline_header_content_and_humanized() {
-        let mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
-        let subject = mail.get_header_content("Subject", HeaderRepresentation::Raw);
+        let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
+        let subject: Vec<String> = mail.get_header_content("Subject", HeaderRepresentation::Raw);
 
         assert_eq!(subject.len(), 1);
-        let subject = subject.get(0).unwrap();
+        let subject: &String = subject.get(0).unwrap();
         assert_eq!(subject, "=?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=");
 
-        let subject = mail.get_header_content("Subject", HeaderRepresentation::Humanized);
+        let subject: Vec<String> =
+            mail.get_header_content("Subject", HeaderRepresentation::Humanized);
 
         assert_eq!(subject.len(), 1);
-        let subject = subject.get(0).unwrap();
+        let subject: &String = subject.get(0).unwrap();
         assert_eq!(subject, "If you can read this you understand the example.");
     }
 
     #[test]
     fn get_data() {
-        let mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
+        let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
 
         assert!(mail.get_data(&Type::Html).is_none());
 
-        let content = mail.get_data(&Type::Text);
+        let content: Option<&String> = mail.get_data(&Type::Text);
         assert!(content.is_some());
         assert_eq!(
             content.unwrap(),

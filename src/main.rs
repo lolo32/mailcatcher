@@ -15,6 +15,9 @@ use crate::{
     },
     utils::spawn_task_and_swallow_log_errors,
 };
+use tide::Server;
+use crate::http::State;
+use crate::http::sse_evt::SseEvt;
 
 mod encoding;
 mod http;
@@ -55,7 +58,7 @@ fn main() -> crate::Result<()> {
     // Initialize the log crate/macros based on RUST_LOG env value
     env_logger::init();
 
-    let opt = Opt::from_args();
+    let opt: Opt = Opt::from_args();
     debug!("Options: {:?}", opt);
 
     // Start the program, that is async, so block waiting it's end
@@ -71,13 +74,13 @@ async fn main_fut(opt: Opt) -> crate::Result<()> {
     // Channels used to notify a new mail arrived in SMTP side to HTTP side
     let (tx_mail_from_smtp, mut rx_mail_from_smtp): (Sender<Mail>, Receiver<Mail>) =
         channel::bounded(1);
-    let (tx_mail_broker, rx_mail_broker) = channel::unbounded();
+    let (tx_mail_broker, rx_mail_broker): (Sender<MailEvt>, Receiver<MailEvt>) = channel::unbounded();
 
     let mail_broker = mail_broker(rx_mail_broker);
 
-    let (tx_new_mail, rx_new_mail) = channel::bounded(1);
-    let tx_http_new_mail = tx_mail_broker.clone();
-    let http_params = Params {
+    let (tx_new_mail, rx_new_mail):(Sender<Mail>, Receiver<Mail>) = channel::bounded(1);
+    let tx_http_new_mail: Sender<MailEvt> = tx_mail_broker.clone();
+    let http_params: Params = Params {
         mail_broker: tx_mail_broker,
         rx_mails: rx_new_mail,
         #[cfg(feature = "faking")]
@@ -108,7 +111,7 @@ async fn main_fut(opt: Opt) -> crate::Result<()> {
         opt.use_starttls,
     );
     // Starting HTTP side
-    let http_app = http::serve_http(http_params).await?;
+    let http_app: Server<State<SseEvt>> = http::serve_http(http_params).await?;
 
     // Open browser window at start if specified
     if opt.browser {

@@ -12,11 +12,7 @@ use futures::{
     StreamExt,
 };
 use log::{debug, error, info, trace};
-use tide::{
-    http::{headers, mime, Mime},
-    prelude::{json, Listener},
-    Body, Request, Response, Server, StatusCode,
-};
+use tide::{http::{headers, mime, Mime}, prelude::{json, Listener}, Body, Request, Response, Server, StatusCode, ResponseBuilder};
 use ulid::Ulid;
 
 use crate::{
@@ -52,7 +48,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     let sse_stream = BroadcastChannel::new();
 
     let sse_stream_new_mail = sse_stream.clone();
-    let mut rx_mails = params.rx_mails;
+    let mut rx_mails: Receiver<Mail> = params.rx_mails;
     spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
         loop {
             // To do on each received new mail
@@ -88,13 +84,13 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
         }
     });
 
-    let state = State {
+    let state: State<SseEvt> = State {
         sse_stream,
         mail_broker: params.mail_broker,
         #[cfg(feature = "faking")]
         new_fake_mail: params.tx_new_mail,
     };
-    let mut app = tide::with_state(state);
+    let mut app: Server<State<SseEvt>> = tide::with_state(state);
 
     app.at("/")
         .get(|req: Request<State<SseEvt>>| async { Ok(send_asset(req, "home.html", mime::HTML)) });
@@ -108,10 +104,10 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     // Get all mail list
     app.at("/mails")
         .get(|req: Request<State<SseEvt>>| async move {
-            let (s, mut r) = channel::unbounded();
+            let (s, mut r): (Sender<Mail>, Receiver<Mail>) = channel::unbounded();
             req.state().mail_broker.send(MailEvt::GetAll(s)).await?;
 
-            let mut resp = Vec::new();
+            let mut resp: Vec<serde_json::Value> = Vec::new();
             while let Some(mail) = r.next().await {
                 resp.push(mail.summary());
             }
@@ -122,7 +118,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     app.at("/mail/:id")
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
-                let obj = json!({
+                let obj: serde_json::Value = json!({
                     "headers": mail.get_headers(HeaderRepresentation::Humanized),
                     "raw": mail.get_headers(HeaderRepresentation::Raw),
                     "data": mail.get_text().unwrap().clone(),
@@ -149,7 +145,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     app.at("/mail/:id/html")
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
-                let s = match mail.get_html() {
+                let s: &str = match mail.get_html() {
                     Some(text) => &text[..],
                     None => "",
                 };
@@ -163,7 +159,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 if let Some(raw) = mail.get_data(&Type::Raw) {
-                    let (headers, body) = Mail::split_header_body(raw);
+                    let (headers, body): (String, String) = Mail::split_header_body(raw);
                     return Ok(Body::from_json(&json!({
                         "headers": headers,
                         "content": body,
@@ -177,9 +173,9 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     // Remove all mails
     app.at("/remove/all")
         .get(|req: Request<State<SseEvt>>| async move {
-            let (s, mut r) = channel::unbounded();
+            let (s, mut r): (Sender<Ulid>, Receiver<Ulid>) = channel::unbounded();
             req.state().mail_broker.send(MailEvt::RemoveAll(s)).await?;
-            let mut nb = 0_usize;
+            let mut nb: usize = 0;
             while let Some(id) = r.next().await {
                 nb += 1;
                 match req.state().sse_stream.send(&SseEvt::DelMail(id)).await {
@@ -192,11 +188,11 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     // Remove a mail by id
     app.at("/remove/:id")
         .get(|req: Request<State<SseEvt>>| async move {
-            let id = req.param("id")?;
+            let id: &str = req.param("id")?;
             if let Ok(id) = Ulid::from_string(id) {
-                let (s, mut r) = channel::bounded(1);
+                let (s, mut r): (Sender<Option<Ulid>>, Receiver<Option<Ulid>>) = channel::bounded(1);
                 req.state().mail_broker.send(MailEvt::Remove(s, id)).await?;
-                let mail = r.next().await.unwrap();
+                let mail: Option<Ulid> = r.next().await.unwrap();
                 if mail.is_some() {
                     info!("mail removed {:?}", mail);
                     req.state().sse_stream.send(&SseEvt::DelMail(id)).await?;
@@ -212,13 +208,13 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     #[cfg(feature = "faking")]
     {
         async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
-            let nb = req
+            let nb: usize = req
                 .param("nb")
                 .map(|nb| usize::from_str_radix(nb, 10).unwrap_or(1))
                 .unwrap_or(1);
 
             for _ in 0..nb {
-                let mail = Mail::fake();
+                let mail: Mail = Mail::fake();
 
                 match req.state().new_fake_mail.send(mail).await {
                     Ok(()) => debug!("New faked mail sent!"),
@@ -267,16 +263,16 @@ where
     T: Send + Clone + 'static,
 {
     // Extract the ID
-    let id = req.param("id")?;
+    let id: &str = req.param("id")?;
     // Convert ID string to Ulid
     Ok(if let Ok(id) = Ulid::from_string(id) {
-        let (s, mut r) = channel::bounded(1);
+        let (s, mut r): (Sender<Option<Mail>>, Receiver<Option<Mail>>) = channel::bounded(1);
         req.state()
             .mail_broker
             .send(MailEvt::GetMail(s, id))
             .await?;
         // Get mails pool
-        let mail = r.next().await.unwrap();
+        let mail: Option<Mail> = r.next().await.unwrap();
         trace!("mail with id {} found {:?}", id, mail);
         mail
     } else {
@@ -291,39 +287,39 @@ where
     T: Send + Clone + 'static,
 {
     // Look if the response can be compressed in deflate, or not
-    let compressed = if let Some(header_value) = req.header(headers::ACCEPT_ENCODING) {
+    let compressed: bool = if let Some(header_value) = req.header(headers::ACCEPT_ENCODING) {
         header_value.get(0).unwrap().as_str().contains("deflate")
     } else {
         false
     };
     // Retrieve the asset, either integrated during release compilation, or read from filesystem if it's debug build
-    let content = Asset::get(name).unwrap();
+    let content: Cow<[u8]> = Asset::get(name).unwrap();
     // If compression if available, ...
-    let content = if compressed {
+    let content: Cow<[u8]> = if compressed {
         // ... do nothing
         content
     } else {
         // ... uncompress the file content
-        let uncompressed = miniz_oxide::inflate::decompress_to_vec(&content[..]).unwrap();
+        let uncompressed: Vec<u8> = miniz_oxide::inflate::decompress_to_vec(&content[..]).unwrap();
         Cow::Owned(uncompressed)
     };
     debug!("content_len: {:?}", content.len());
 
     // Build the Response
-    let response = Response::builder(StatusCode::Ok)
+    let response: ResponseBuilder = Response::builder(StatusCode::Ok)
         // specify the mime type
         .content_type(mime)
         // then the file length
         .header(headers::CONTENT_LENGTH, content.len().to_string());
     // If compression enabled, add the header to response
-    let response = if compressed {
+    let response: ResponseBuilder = if compressed {
         debug! {"using deflate compression output"};
         response.header(headers::CONTENT_ENCODING, "deflate")
     } else {
         response
     };
     // If the last modified date is available, add the content to the header
-    let response = if let Some(modif) = Asset::modif(name) {
+    let response: ResponseBuilder = if let Some(modif) = Asset::modif(name) {
         response.header(headers::LAST_MODIFIED, modif)
     } else {
         response
@@ -355,15 +351,15 @@ mod tests {
     #[test]
     fn test_routes() {
         task::block_on(async {
-            let (tx_mail_broker, rx_mail_broker) = channel::unbounded();
-            let (_tx_new_mail, rx_new_mail) = channel::bounded(1);
+            let (tx_mail_broker, rx_mail_broker): (Sender<MailEvt>, Receiver<MailEvt>) = channel::unbounded();
+            let (tx_new_mail, rx_new_mail): (Sender<Mail>, Receiver<Mail>) = channel::bounded(1);
             #[cfg(feature = "faking")]
-            let (tx_mail_from_smtp, _rx_mail_from_smtp) = channel::bounded(1);
+            let (tx_mail_from_smtp, _rx_mail_from_smtp): (Sender<Mail>, Receiver<Mail>) = channel::bounded(1);
 
             // Provide some mails
-            let mut mails = Vec::new();
+            let mut mails: Vec<Mail> = Vec::new();
             for _ in 0..10 {
-                let mail = Mail::fake();
+                let mail: Mail = Mail::fake();
                 mails.push(mail.clone());
                 tx_mail_broker.send(MailEvt::NewMail(mail)).await.unwrap();
             }
@@ -373,13 +369,13 @@ mod tests {
             );
 
             // Init the HTTP side
-            let params = Params {
+            let params: Params = Params {
                 mail_broker: tx_mail_broker,
                 rx_mails: rx_new_mail,
                 #[cfg(feature = "faking")]
                 tx_new_mail: tx_mail_from_smtp,
             };
-            let app = serve_http(params).await.unwrap();
+            let app: Server<State<SseEvt>> = serve_http(params).await.unwrap();
 
             // Assets
             for (filename, mime_type) in &[
@@ -387,12 +383,12 @@ mod tests {
                 ("w3.css", mime::CSS),
                 ("hyperapp.js", mime::JAVASCRIPT),
             ] {
-                let url = if filename == &"home.html" {
+                let url: &str = if filename == &"home.html" {
                     ""
                 } else {
                     filename
                 };
-                let req = Request::new(
+                let req: Request = Request::new(
                     Method::Get,
                     Url::parse(&format!("http://localhost/{}", url)).unwrap(),
                 );
@@ -401,9 +397,9 @@ mod tests {
                     res.header(headers::CONTENT_TYPE).unwrap(),
                     &mime_type.to_string()
                 );
-                let mut fs = File::open(Path::new("asset").join(filename)).await.unwrap();
-                let mut home_content = String::new();
-                let read = fs.read_to_string(&mut home_content).await.unwrap();
+                let mut fs: File = File::open(Path::new("asset").join(filename)).await.unwrap();
+                let mut home_content: String = String::new();
+                let read: usize = fs.read_to_string(&mut home_content).await.unwrap();
                 assert!(read > 0, "File content must have some bytes");
                 assert_eq!(read, home_content.len());
                 assert_eq!(res.body_string().await.unwrap(), home_content);
@@ -411,7 +407,7 @@ mod tests {
 
             // Test deflate
             {
-                let mut req = Request::new(Method::Get, Url::parse("http://localhost/").unwrap());
+                let mut req: Request = Request::new(Method::Get, Url::parse("http://localhost/").unwrap());
                 req.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
                 let mut res: Response = app.respond(req).await.unwrap();
                 assert_eq!(
@@ -419,23 +415,23 @@ mod tests {
                     &mime::HTML.to_string()
                 );
                 assert_eq!(res.header(headers::CONTENT_ENCODING).unwrap(), "deflate");
-                let mut fs = File::open(Path::new("asset").join("home.html"))
+                let mut fs: File = File::open(Path::new("asset").join("home.html"))
                     .await
                     .unwrap();
-                let mut home_content = String::new();
-                let read = fs.read_to_string(&mut home_content).await.unwrap();
+                let mut home_content: String = String::new();
+                let read: usize = fs.read_to_string(&mut home_content).await.unwrap();
                 assert!(read > 0, "File content must have some bytes");
                 assert_eq!(read, home_content.len());
-                let res_content = res.body_bytes().await.unwrap();
+                let res_content: Vec<u8> = res.body_bytes().await.unwrap();
                 // Deflate the content
-                let res_content = miniz_oxide::inflate::decompress_to_vec(&res_content).unwrap();
-                let res_content = String::from_utf8(res_content).unwrap();
+                let res_content: Vec<u8> = miniz_oxide::inflate::decompress_to_vec(&res_content).unwrap();
+                let res_content: String = String::from_utf8(res_content).unwrap();
                 assert_eq!(res_content, home_content);
             }
 
             // Get all mails
             {
-                let req = Request::new(Method::Get, Url::parse("http://localhost/mails").unwrap());
+                let req: Request = Request::new(Method::Get, Url::parse("http://localhost/mails").unwrap());
                 let mut res: Response = app.respond(req).await.unwrap();
                 assert_eq!(
                     res.header(headers::CONTENT_TYPE).unwrap(),
@@ -446,7 +442,7 @@ mod tests {
                     .map(|mail| serde_json::from_value::<MailSummary>(mail.summary()).unwrap())
                     .collect();
                 mails.sort_by(|a, b| a.id.cmp(&b.id));
-                let txt = res.body_string().await.unwrap();
+                let txt: String = res.body_string().await.unwrap();
                 let mut txt: Vec<MailSummary> = serde_json::from_str(&txt).unwrap();
                 txt.sort_by(|a, b| a.id.cmp(&b.id));
                 assert_eq!(mails, txt);
@@ -460,15 +456,15 @@ mod tests {
                     raw: Vec<String>,
                     data: String,
                 }
-                let mail = &mails[0];
+                let mail: &Mail = &mails[0];
 
                 // Non existent mail id
-                let req = Request::new(Method::Get, Url::parse("http://localhost/mail/1").unwrap());
+                let req: Request = Request::new(Method::Get, Url::parse("http://localhost/mail/1").unwrap());
                 let res: Response = app.respond(req).await.unwrap();
                 assert_eq!(res.status(), StatusCode::NotFound);
 
                 // Valid mail id
-                let req = Request::new(
+                let req: Request = Request::new(
                     Method::Get,
                     Url::parse(&format!(
                         "http://localhost/mail/{}",
@@ -481,14 +477,14 @@ mod tests {
                     res.header(headers::CONTENT_TYPE).unwrap(),
                     &mime::JSON.to_string()
                 );
-                let mail = serde_json::from_value::<MailAll>(json!({
+                let mail: MailAll = serde_json::from_value(json!({
                     "headers": mail.get_headers(HeaderRepresentation::Humanized),
                     "raw": mail.get_headers(HeaderRepresentation::Raw),
                     "data": mail.get_text().unwrap().clone(),
                 }))
                 .unwrap();
-                let txt =
-                    serde_json::from_str::<MailAll>(&res.body_string().await.unwrap()).unwrap();
+                let txt: MailAll =
+                    serde_json::from_str(&res.body_string().await.unwrap()).unwrap();
                 assert_eq!(mail, txt);
             }
         });

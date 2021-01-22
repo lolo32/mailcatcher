@@ -1,3 +1,4 @@
+use futures::StreamExt;
 use log::{info, trace, warn};
 use tide::{sse::Sender, Request};
 
@@ -8,8 +9,6 @@ use super::{
 
 /// Handle Server-Sent Events
 pub async fn handle_sse(req: Request<State<SseEvt>>, sender: Sender) -> tide::Result<()> {
-    use futures::StreamExt;
-
     // Retrieve the SSE stream notifications
     let mut sse_stream = req.state().sse_stream.clone();
 
@@ -21,7 +20,7 @@ pub async fn handle_sse(req: Request<State<SseEvt>>, sender: Sender) -> tide::Re
         );
 
         // Convert the Event to a data struct
-        let data = SseData::from(mail_evt);
+        let data: SseData = mail_evt.into();
         trace!("data to send: {:?}", data);
         // Send the generated data
         let sent = sender.send(data.name, data.data.as_ref(), None).await;

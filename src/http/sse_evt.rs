@@ -26,8 +26,8 @@ impl<'a> From<SseEvt> for SseData<'a> {
     fn from(sse_evt: SseEvt) -> Self {
         match sse_evt {
             SseEvt::NewMail(mail) => {
-                let mail = mail.summary();
-                let data = task::block_on(async move {
+                let mail: serde_json::Value = mail.summary();
+                let data: String = task::block_on(async move {
                     Body::from_json(&mail)
                         .unwrap_or_else(|_| "".into())
                         .into_string()
@@ -57,18 +57,18 @@ mod tests {
 
     #[test]
     fn convert_to_sse_data() {
-        let sse_evt = SseEvt::Ping;
+        let sse_evt: SseEvt = SseEvt::Ping;
         let data: SseData = sse_evt.into();
         assert_eq!(data.name, "ping");
         assert_eq!(data.data, "💓");
 
-        let id = Ulid::new();
-        let sse_evt = SseEvt::DelMail(id);
+        let id: Ulid = Ulid::new();
+        let sse_evt: SseEvt = SseEvt::DelMail(id);
         let data: SseData = sse_evt.into();
         assert_eq!(data.name, "delMail");
         assert_eq!(data.data, id.to_string());
 
-        let mail = Mail::new(
+        let mail: Mail = Mail::new(
             "from@example.org",
             &["to@example.net".into()],
             r"Date: Sun, 22 Nov 2020 01:58:23 +0100
@@ -80,8 +80,8 @@ X-Mailer: swaks v20201014.0 jetmore.org/john/code/swaks/
 
 This is a test mailing",
         );
-        let id = mail.get_id();
-        let sse_evt = SseEvt::NewMail(mail);
+        let id: Ulid = mail.get_id();
+        let sse_evt: SseEvt = SseEvt::NewMail(mail);
         let data: SseData = sse_evt.into();
         assert_eq!(data.name, "newMail");
         assert_eq!(data.data, format!("{{\"date\":1606006703,\"from\":\"from@example.org\",\"id\":\"{}\",\"size\":248,\"subject\":\"test Sun, 22 Nov 2020 01:58:23 +0100\",\"to\":[\"to@example.net\"]}}", id));

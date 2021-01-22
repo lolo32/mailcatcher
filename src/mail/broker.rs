@@ -89,7 +89,7 @@ This is a test mailing";
     #[test]
     fn test_mail_broker() {
         task::block_on(async {
-            let (sender, receiver) = channel::unbounded();
+            let (sender, receiver): (Sender<MailEvt>, Receiver<MailEvt>) = channel::unbounded();
 
             // Launch and process commands
             assert!(mail_broker(receiver)
@@ -98,9 +98,9 @@ This is a test mailing";
                     // Test adding 1 mail
                     // -----------------------
 
-                    let mail1 = new_mail();
-                    let mail2 = new_mail();
-                    let mail3 = new_mail();
+                    let mail1: Mail = new_mail();
+                    let mail2: Mail = new_mail();
+                    let mail3: Mail = new_mail();
 
                     sender.send(MailEvt::NewMail(mail1.clone())).await.unwrap();
                     sender.send(MailEvt::NewMail(mail2.clone())).await.unwrap();
@@ -110,7 +110,7 @@ This is a test mailing";
                     // Test getting 1 mail by id
                     // -----------------------
 
-                    let (s, mut r) = channel::unbounded();
+                    let (s, mut r): (Sender<Option<Mail>>, Receiver<Option<Mail>>) = channel::unbounded();
 
                     // Stream for unknown id
                     sender
@@ -119,7 +119,7 @@ This is a test mailing";
                         .unwrap();
 
                     // Read unknown id result
-                    let received_none = r.next().await.unwrap();
+                    let received_none: Option<Mail> = r.next().await.unwrap();
                     assert!(received_none.is_none());
 
                     // Stream for known id
@@ -129,7 +129,7 @@ This is a test mailing";
                         .unwrap();
 
                     // Read known id result
-                    let received_mail = r.next().await.unwrap();
+                    let received_mail: Option<Mail> = r.next().await.unwrap();
                     assert!(received_mail.is_some());
                     assert_eq!(received_mail.unwrap().get_id(), mail1.get_id());
 
@@ -137,10 +137,10 @@ This is a test mailing";
                     // Retrieve all mails
                     // -----------------------
 
-                    let (s, mut r) = channel::unbounded();
+                    let (s, mut r): (Sender<Mail>, Receiver<Mail>) = channel::unbounded();
 
                     sender.send(MailEvt::GetAll(s)).await.unwrap();
-                    let mut nb = 0;
+                    let mut nb: usize = 0;
                     while let Some(received_mail) = r.next().await {
                         nb += 1;
                         // result is not added ordered, so check with both added id
@@ -157,7 +157,7 @@ This is a test mailing";
                     // Test removing 1 mail
                     // -----------------------
 
-                    let (s, mut r) = channel::unbounded();
+                    let (s, mut r): (Sender<Option<Ulid>>, Receiver<Option<Ulid>>) = channel::unbounded();
 
                     //  ... for unknown id
                     sender
@@ -165,7 +165,7 @@ This is a test mailing";
                         .await
                         .unwrap();
                     // Read unknown id result
-                    let received = r.next().await.unwrap();
+                    let received: Option<Ulid> = r.next().await.unwrap();
                     assert!(received.is_none());
                     // 0 mails added, so must found 0 too...
 
@@ -175,18 +175,18 @@ This is a test mailing";
                         .await
                         .unwrap();
                     // Read known id result
-                    let received = r.next().await.unwrap();
+                    let received: Option<Ulid> = r.next().await.unwrap();
                     assert_eq!(received.unwrap(), mail1.get_id());
 
                     // -----------------------
                     // Test removing all mails from tha pool
                     // -----------------------
 
-                    let (s, mut r) = channel::unbounded();
+                    let (s, mut r): (Sender<Ulid>, Receiver<Ulid>) = channel::unbounded();
 
                     // ... ask to remove all mails
                     sender.send(MailEvt::RemoveAll(s)).await.unwrap();
-                    let mut nb = 0;
+                    let mut nb: usize = 0;
                     while let Some(received_mail) = r.next().await {
                         nb += 1;
                         assert!(
