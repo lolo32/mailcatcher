@@ -90,7 +90,7 @@ async fn main_fut(opt: Opt) -> crate::Result<()> {
                 info!("Received new mail: {:?}", mail);
                 // Notify javascript side by SSE
                 match tx_http_new_mail.send(MailEvt::NewMail(mail.clone())).await {
-                    Ok(_) => {
+                    Ok(()) => {
                         tx_new_mail.send(mail).await.unwrap();
                         trace!("Mail stored successfully")
                     }

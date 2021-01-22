@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use async_std::{
     channel::{self, Receiver, Sender},
-    net::ToSocketAddrs,
+    net::{SocketAddr, ToSocketAddrs},
     task,
 };
 use broadcaster::BroadcastChannel;
@@ -60,7 +60,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
                 info!(">>> Received new mail: {:?}", mail);
                 // Append the mail to the list
                 match sse_stream_new_mail.send(&SseEvt::NewMail(mail)).await {
-                    Ok(_) => trace!(">>> New mail notification sent to channel"),
+                    Ok(()) => trace!(">>> New mail notification sent to channel"),
                     Err(e) => error!(">>> Err new mail notification to channel: {:?}", e),
                 }
             }
@@ -183,7 +183,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
             while let Some(id) = r.next().await {
                 nb += 1;
                 match req.state().sse_stream.send(&SseEvt::DelMail(id)).await {
-                    Ok(_) => trace!("Success notification of removal: {}", id.to_string()),
+                    Ok(()) => trace!("Success notification of removal: {}", id.to_string()),
                     Err(e) => error!("Notification of removal {}: {:?}", id.to_string(), e),
                 }
             }
@@ -248,7 +248,7 @@ where
             format!("localhost:{}", port)
                 .to_socket_addrs()
                 .await?
-                .collect::<Vec<_>>(),
+                .collect::<Vec<SocketAddr>>(),
         )
         .await?;
     // Display binding ports
@@ -441,10 +441,10 @@ mod tests {
                     res.header(headers::CONTENT_TYPE).unwrap(),
                     &mime::JSON.to_string()
                 );
-                let mut mails = mails
+                let mut mails: Vec<MailSummary> = mails
                     .iter()
                     .map(|mail| serde_json::from_value::<MailSummary>(mail.summary()).unwrap())
-                    .collect::<Vec<_>>();
+                    .collect();
                 mails.sort_by(|a, b| a.id.cmp(&b.id));
                 let txt = res.body_string().await.unwrap();
                 let mut txt: Vec<MailSummary> = serde_json::from_str(&txt).unwrap();

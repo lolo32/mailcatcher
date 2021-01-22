@@ -33,10 +33,10 @@ pub async fn serve_smtp(
     use_starttls: bool,
 ) -> crate::Result<()> {
     // Convert port to socket address
-    let addr = format!("localhost:{}", port)
+    let addr: Vec<SocketAddr> = format!("localhost:{}", port)
         .to_socket_addrs()
         .await?
-        .collect::<Vec<_>>();
+        .collect();
 
     // For each socket address IPv4/IPv6 ...
     addr.iter()

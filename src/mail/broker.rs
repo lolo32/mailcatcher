@@ -51,7 +51,7 @@ pub async fn mail_broker(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
                     }
                     // Remove all mails
                     MailEvt::RemoveAll(sender) => {
-                        let ids = mails.keys().cloned().collect::<Vec<_>>();
+                        let ids: Vec<Ulid> = mails.keys().cloned().collect();
 
                         for id in ids {
                             mails.remove(&id);
