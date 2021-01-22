@@ -1,5 +1,9 @@
 # MailCatcher
 
+![CI](https://github.com/lolo32/mailcatcher/workflows/Ci/badge.svg)
+![Security audit](https://github.com/lolo32/mailcatcher/workflows/Security%20audit/badge.svg)
+[![codecov](https://codecov.io/gh/lolo32/mailcatcher/branch/main/graph/badge.svg?token=DH3JmaeWaZ)](https://codecov.io/gh/lolo32/mailcatcher)
+
 ## What can I do, what's that?
 
 This software can be used to have a SMTP mail server on any computer that
