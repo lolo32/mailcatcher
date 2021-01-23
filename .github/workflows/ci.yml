@@ -121,9 +121,10 @@ jobs:
         with:
           crate: grcov
           version: latest
+          use-tool-cache: true
 
       - name: Gather coverage data
-        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --comit-sha $GITHUB_SHA  --binary-path $GITHUB_WORKSPACE/target/debug/ -t lcov --branch --ignore-not-existing --output-path $GITHUB_WORKSPACE/target/debug/coverage/ --ignore mailcatcher-derive/* --service-name $GITHUB_WORKFLOW
+        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $GITHUB_WORKSPACE/target/debug/coverage/ --ignore mailcatcher-derive/* --service-name $GITHUB_WORKFLOW
 
       # # Runs the units tests in Release mode
       # - name: Execute tests in Release
