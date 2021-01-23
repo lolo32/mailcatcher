@@ -1,0 +1,7 @@
+# Speeds-up parsing, when the code coverage information is exclusively coming
+# from a llvm build
+llvm: true
+
+# Ignore files/directories specified as globs
+ignore:
+  - "mailcatcher-derive/*"
