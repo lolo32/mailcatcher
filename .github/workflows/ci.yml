@@ -92,6 +92,18 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
+          components: llvm-tools-preview
+
+      # Build the binary
+      - name: Build binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all-features
+        env:
+          CARGO_INCREMENTAL: 0
+          #RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
+          RUSTFLAGS: "-Zinstrument-coverage"
 
       # Runs the units tests in Debug mode
       - name: Execute tests
@@ -101,7 +113,17 @@ jobs:
           args: --all-features
         env:
           CARGO_INCREMENTAL: 0
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
+          #RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
+          RUSTFLAGS: "-Zinstrument-coverage"
+
+      - name: Install grcov
+        uses: actions-rs/install@v0.1
+        with:
+          crate: grcov
+          version: latest
+
+      - name: Gather coverage data
+        run: grcov ${{ GITHUB_WORKSPACE }} --source-dir ${{ GITHUB_WORKSPACE }} --llvm --comit-sha ${{ GITHUB_SHA }}  --binary-path ${{ GITHUB_WORKSPACE }}/target/debug/ -t lcov --branch --ignore-not-existing --output-path ${{ GITHUB_WORKSPACE }}/target/debug/coverage/ --ignore mailcatcher-derive/* --service-name ${{ GITHUB_WORKFLOW }}
 
       # # Runs the units tests in Release mode
       # - name: Execute tests in Release
@@ -113,9 +135,9 @@ jobs:
       #     CARGO_INCREMENTAL: 0
       #     RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
 
-      - name: Gather coverage data
-        id: coverage
-        uses: actions-rs/grcov@v0.1
+      # - name: Gather coverage data
+      #   id: coverage
+      #   uses: actions-rs/grcov@v0.1
 
       - name: Codecov upload
         uses: codecov/codecov-action@v1
@@ -125,7 +147,7 @@ jobs:
           #flags: unittests # optional
           name: codecov-mailcatcher # optional
           fail_ci_if_error: true # optional (default = false)
-          verbose: true # optional (default = false)
+          verbose: false # optional (default = false)
 
   build:
     strategy:
