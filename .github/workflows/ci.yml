@@ -128,7 +128,7 @@ jobs:
           echo grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore "mailcatcher-derive/*" --service-name $GITHUB_WORKFLOW
           grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore "mailcatcher-derive/*" --service-name $GITHUB_WORKFLOW
         env:
-          LCOV_DESTINATION: ${{ runner.temp }}/coverage
+          LCOV_DESTINATION: ${{ runner.temp }}/coverage.lcov
 
       # # Runs the units tests in Release mode
       # - name: Execute tests in Release
@@ -148,13 +148,13 @@ jobs:
         uses: codecov/codecov-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          #files: ./coverage1.xml,./coverage2.xml # optional
-          #flags: unittests # optional
+          files: ${{ runner.temp }}/coverage.lcov
+          # flags: unittests # optional
           name: codecov-mailcatcher # optional
           fail_ci_if_error: true # optional (default = false)
           verbose: false # optional (default = false)
-        env:
-          LCOV_DESTINATION: ${{ runner.temp }}/coverage
+        # env:
+        #   LCOV_DESTINATION: ${{ runner.temp }}/coverage.lcov
 
   build:
     strategy:
