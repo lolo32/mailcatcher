@@ -117,7 +117,7 @@ jobs:
           RUSTFLAGS: "-Zinstrument-coverage"
 
       - name: Gather coverage data
-        uses: actions-rs/grcov@v0.1
+        uses: actions-rs/grcov@master
 
       - name: Codecov upload
         uses: codecov/codecov-action@v1
