@@ -124,7 +124,9 @@ jobs:
           use-tool-cache: true
 
       - name: Gather coverage data
-        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $GITHUB_WORKSPACE/target/debug/coverage/ --ignore mailcatcher-derive/* --service-name $GITHUB_WORKFLOW
+        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore mailcatcher-derive/* --service-name $GITHUB_WORKFLOW
+        env:
+          LCOV_DESTINATION: ${{ runner.temp }}/coverage
 
       # # Runs the units tests in Release mode
       # - name: Execute tests in Release
@@ -149,6 +151,8 @@ jobs:
           name: codecov-mailcatcher # optional
           fail_ci_if_error: true # optional (default = false)
           verbose: false # optional (default = false)
+        env:
+          LCOV_DESTINATION: ${{ runner.temp }}/coverage
 
   build:
     strategy:
