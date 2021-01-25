@@ -4,4 +4,4 @@ llvm: true
 
 # Ignore files/directories specified as globs
 ignore:
-  - "mailcatcher-derive/*"
+  - "./mailcatcher-derive/src/lib.rs"

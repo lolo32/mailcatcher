@@ -116,31 +116,8 @@ jobs:
           #RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
           RUSTFLAGS: "-Zinstrument-coverage"
 
-      - name: Install grcov
-        uses: actions-rs/install@v0.1
-        with:
-          crate: grcov
-          version: latest
-          use-tool-cache: true
-
       - name: Gather coverage data
-        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore mailcatcher-derive/src/lib.rs --service-name $GITHUB_WORKFLOW
-        env:
-          LCOV_DESTINATION: ${{ runner.temp }}/coverage.lcov
-
-      # # Runs the units tests in Release mode
-      # - name: Execute tests in Release
-      #   uses: actions-rs/cargo@v1
-      #   with:
-      #     command: test
-      #     args: --all-features --release
-      #   env:
-      #     CARGO_INCREMENTAL: 0
-      #     RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
-
-      # - name: Gather coverage data
-      #   id: coverage
-      #   uses: actions-rs/grcov@v0.1
+        uses: actions-rs/grcov@v0.1
 
       - name: Codecov upload
         uses: codecov/codecov-action@v1
