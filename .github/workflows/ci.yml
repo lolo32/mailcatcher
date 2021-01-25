@@ -123,7 +123,7 @@ jobs:
           version: latest
 
       - name: Gather coverage data
-        uses: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --service-name $GITHUB_WORKFLOW
+        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --service-name $GITHUB_WORKFLOW
         env:
           LCOV_DESTINATION: ${{ runner.temp }}/lcov.info
 
