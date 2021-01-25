@@ -123,13 +123,8 @@ jobs:
         uses: codecov/codecov-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          files: ${{ runner.temp }}/coverage.lcov
-          # flags: unittests # optional
           name: codecov-mailcatcher # optional
           fail_ci_if_error: true # optional (default = false)
-          verbose: false # optional (default = false)
-        # env:
-        #   LCOV_DESTINATION: ${{ runner.temp }}/coverage.lcov
 
   build:
     strategy:
