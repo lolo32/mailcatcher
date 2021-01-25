@@ -125,8 +125,8 @@ jobs:
 
       - name: Gather coverage data
         run: |
-          echo grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore mailcatcher-derive/* --service-name $GITHUB_WORKFLOW
-          grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore mailcatcher-derive/* --service-name $GITHUB_WORKFLOW
+          echo grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore "mailcatcher-derive/*" --service-name $GITHUB_WORKFLOW
+          grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore "mailcatcher-derive/*" --service-name $GITHUB_WORKFLOW
         env:
           LCOV_DESTINATION: ${{ runner.temp }}/coverage
 
