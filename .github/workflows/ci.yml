@@ -116,13 +116,22 @@ jobs:
           #RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
           RUSTFLAGS: "-Zinstrument-coverage"
 
+      - name: Install grcov
+        uses: actions-rs/install@v0.1
+        with:
+          crate: grcov
+          version: latest
+
       - name: Gather coverage data
-        uses: actions-rs/grcov@master
+        uses: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --service-name $GITHUB_WORKFLOW
+        env:
+          LCOV_DESTINATION: ${{ runner.temp }}/lcov.info
 
       - name: Codecov upload
         uses: codecov/codecov-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+          files: ${{ runner.temp }}/lcov.info
           name: codecov-mailcatcher # optional
           fail_ci_if_error: true # optional (default = false)
 
