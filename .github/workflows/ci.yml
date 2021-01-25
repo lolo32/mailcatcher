@@ -121,38 +121,19 @@ jobs:
         with:
           crate: grcov
           version: latest
-          use-tool-cache: true
 
       - name: Gather coverage data
-        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --ignore mailcatcher-derive/* --service-name $GITHUB_WORKFLOW
+        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --service-name $GITHUB_WORKFLOW
         env:
-          LCOV_DESTINATION: ${{ runner.temp }}/coverage
-
-      # # Runs the units tests in Release mode
-      # - name: Execute tests in Release
-      #   uses: actions-rs/cargo@v1
-      #   with:
-      #     command: test
-      #     args: --all-features --release
-      #   env:
-      #     CARGO_INCREMENTAL: 0
-      #     RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
-
-      # - name: Gather coverage data
-      #   id: coverage
-      #   uses: actions-rs/grcov@v0.1
+          LCOV_DESTINATION: ${{ runner.temp }}/lcov.info
 
       - name: Codecov upload
         uses: codecov/codecov-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          #files: ./coverage1.xml,./coverage2.xml # optional
-          #flags: unittests # optional
+          files: ${{ runner.temp }}/lcov.info
           name: codecov-mailcatcher # optional
           fail_ci_if_error: true # optional (default = false)
-          verbose: false # optional (default = false)
-        env:
-          LCOV_DESTINATION: ${{ runner.temp }}/coverage
 
   build:
     strategy:
