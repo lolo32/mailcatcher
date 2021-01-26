@@ -23,14 +23,14 @@ pub async fn mail_broker(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
     // This is the mail tank
     let mut mails: fnv::FnvHashMap<Ulid, Mail> = Default::default();
 
-    spawn_task_and_swallow_log_errors("Mail broker".to_string(), async move {
+    let _ = spawn_task_and_swallow_log_errors("Mail broker".to_string(), async move {
         loop {
             if let Some(evt) = receiver.next().await {
                 trace!("processing MailEvt: {:?}", evt);
                 match evt {
                     // A new mail, add it to the list
                     MailEvt::NewMail(mail) => {
-                        mails.insert(mail.get_id(), mail.clone());
+                        let _ = mails.insert(mail.get_id(), mail.clone());
                     }
                     // Want to retrieve the mail from this id
                     MailEvt::GetMail(sender, id) => {
@@ -54,7 +54,7 @@ pub async fn mail_broker(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
                         let ids: Vec<Ulid> = mails.keys().cloned().collect();
 
                         for id in ids {
-                            mails.remove(&id);
+                            let _ = mails.remove(&id);
                             sender.send(id).await?;
                         }
                         drop(sender);

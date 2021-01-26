@@ -22,7 +22,7 @@ pub struct SseData<'a> {
 }
 
 /// Convert from SseEvt to SseData
-impl<'a> From<SseEvt> for SseData<'a> {
+impl From<SseEvt> for SseData<'_> {
     fn from(sse_evt: SseEvt) -> Self {
         match sse_evt {
             SseEvt::NewMail(mail) => {

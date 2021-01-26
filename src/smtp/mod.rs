@@ -3,12 +3,12 @@ use std::borrow::Cow;
 use async_std::{
     channel::Sender,
     io::BufReader,
-    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    net::{Incoming, SocketAddr, TcpListener, ToSocketAddrs},
     task,
 };
 use futures::{
     stream::FuturesUnordered,
-    {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
+    AsyncRead, AsyncWrite, {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
 use log::{error, info, trace};
 
@@ -17,8 +17,6 @@ use crate::{
     smtp::command::Command,
     utils::{spawn_task_and_swallow_log_errors, ConnectionInfo},
 };
-use async_std::net::Incoming;
-use futures::io::Lines;
 
 mod command;
 
@@ -90,12 +88,12 @@ async fn accept_loop(
     // For each new connection
     loop {
         if let Some(stream) = incoming.next().await {
-            let stream: TcpStream = stream?;
+            let stream = stream?;
             let conn: ConnectionInfo =
                 ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
             info!("Accepting new connection from: {}", stream.peer_addr()?);
             // Spawn local processing
-            spawn_task_and_swallow_log_errors(
+            let _ = spawn_task_and_swallow_log_errors(
                 format!("Task: TCP transmission {}", conn),
                 connection_loop(
                     stream,
@@ -110,22 +108,25 @@ async fn accept_loop(
 }
 
 /// Deals with each new connection
-async fn connection_loop(
-    stream: TcpStream,
+async fn connection_loop<S>(
+    stream: S,
     conn: ConnectionInfo,
     server_name: String,
     use_starttls: bool,
     mails_broker: Sender<Mail>,
-) -> crate::Result<()> {
+) -> crate::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone,
+{
     // Initialize the SMTP connection
-    let mut smtp: Smtp = Smtp::new(&stream, server_name, use_starttls);
+    let mut smtp = Smtp::new(&stream, server_name, use_starttls);
 
     // Send SMTP banner to client
     smtp.send_server_name().await?;
 
     // Generate a line reader to process commands
-    let reader: BufReader<&TcpStream> = BufReader::new(&stream);
-    let mut lines: Lines<BufReader<&TcpStream>> = reader.lines();
+    let reader = BufReader::new(stream);
+    let mut lines = reader.lines();
 
     // Begin command loop
     while let Some(line) = lines.next().await {
@@ -151,9 +152,9 @@ async fn connection_loop(
     Ok(())
 }
 
-struct Smtp<'a> {
+struct Smtp<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> {
     server_name: String,
-    write_stream: TcpStream,
+    write_stream: S,
     use_starttls: bool,
     remote_name: Option<String>,
     addr_from: Option<String>,
@@ -162,8 +163,8 @@ struct Smtp<'a> {
     data: Cow<'a, str>,
 }
 
-impl<'a> Smtp<'a> {
-    pub fn new(stream: &TcpStream, server_name: String, use_starttls: bool) -> Smtp<'a> {
+impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
+    pub fn new(stream: &S, server_name: String, use_starttls: bool) -> Smtp<'a, S> {
         Self {
             server_name,
             write_stream: stream.clone(),

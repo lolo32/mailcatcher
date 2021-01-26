@@ -1,5 +1,4 @@
-use std::borrow::Cow;
-use std::time::Duration;
+use std::{borrow::Cow, time::Duration};
 
 use async_std::{
     channel::{self, Receiver, Sender},
@@ -53,7 +52,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
 
     let sse_stream_new_mail = sse_stream.clone();
     let mut rx_mails: Receiver<Mail> = params.rx_mails;
-    spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
+    let _ = spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
         loop {
             // To do on each received new mail
             if let Some(mail) = rx_mails.next().await {
@@ -69,17 +68,17 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
 
     // Noop consumer to empty the ctream
     let mut sse_noop_stream = sse_stream.clone();
-    spawn_task_and_swallow_log_errors("Task: Noop stream emptier".into(), async move {
+    let _ = spawn_task_and_swallow_log_errors("Task: Noop stream emptier".into(), async move {
         loop {
             trace!("Consume SSE notification stream");
             // Do nothing, it's just to empty the stream
-            sse_noop_stream.next().await;
+            let _ = sse_noop_stream.next().await;
         }
     });
 
     // Task sending ping to SSE terminators
     let sse_tx_ping_stream = sse_stream.clone();
-    spawn_task_and_swallow_log_errors("Task: Ping SSE sender".into(), async move {
+    let _ = spawn_task_and_swallow_log_errors("Task: Ping SSE sender".into(), async move {
         loop {
             trace!("Sending ping");
             // Do nothing, it's just to empty the stream
@@ -96,17 +95,21 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
     };
     let mut app: Server<State<SseEvt>> = tide::with_state(state);
 
-    app.at("/")
+    let _ = app
+        .at("/")
         .get(|req: Request<State<SseEvt>>| async { Ok(send_asset(req, "home.html", mime::HTML)) });
-    app.at("/hyperapp.js")
+    let _ = app
+        .at("/hyperapp.js")
         .get(|req: Request<State<SseEvt>>| async {
             Ok(send_asset(req, "hyperapp.js", mime::JAVASCRIPT))
         });
-    app.at("/w3.css")
+    let _ = app
+        .at("/w3.css")
         .get(|req: Request<State<SseEvt>>| async { Ok(send_asset(req, "w3.css", mime::CSS)) });
 
     // Get all mail list
-    app.at("/mails")
+    let _ = app
+        .at("/mails")
         .get(|req: Request<State<SseEvt>>| async move {
             let (s, mut r): crate::Channel<Mail> = channel::unbounded();
             req.state().mail_broker.send(MailEvt::GetAll(s)).await?;
@@ -119,7 +122,8 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
             Body::from_json(&json!(&resp))
         });
     // Get mail details
-    app.at("/mail/:id")
+    let _ = app
+        .at("/mail/:id")
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 let obj: serde_json::Value = json!({
@@ -133,7 +137,8 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
             }
         });
     // Get mail in text format
-    app.at("/mail/:id/text")
+    let _ = app
+        .at("/mail/:id/text")
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 Ok(Body::from_string(match mail.get_text() {
@@ -146,7 +151,8 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
             }
         });
     // Get mail in html format
-    app.at("/mail/:id/html")
+    let _ = app
+        .at("/mail/:id/html")
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 let s: &str = match mail.get_html() {
@@ -159,7 +165,8 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
             }
         });
     // Get RAW format mail
-    app.at("/mail/:id/source")
+    let _ = app
+        .at("/mail/:id/source")
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
                 if let Some(raw) = mail.get_data(&Type::Raw) {
@@ -175,7 +182,8 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
         });
 
     // Remove all mails
-    app.at("/remove/all")
+    let _ = app
+        .at("/remove/all")
         .get(|req: Request<State<SseEvt>>| async move {
             let (s, mut r): crate::Channel<Ulid> = channel::unbounded();
             req.state().mail_broker.send(MailEvt::RemoveAll(s)).await?;
@@ -190,7 +198,8 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
             Ok(format!("OK: {}", nb))
         });
     // Remove a mail by id
-    app.at("/remove/:id")
+    let _ = app
+        .at("/remove/:id")
         .get(|req: Request<State<SseEvt>>| async move {
             let id: &str = req.param("id")?;
             if let Ok(id) = Ulid::from_string(id) {
@@ -207,7 +216,7 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
         });
 
     // SSE stream
-    app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
+    let _ = app.at("/sse").get(tide::sse::endpoint(sse::handle_sse));
 
     #[cfg(feature = "faking")]
     {
@@ -230,9 +239,9 @@ pub async fn serve_http(params: Params) -> crate::Result<Server<State<SseEvt>>> 
         }
 
         // Generate one fake mail
-        app.at("/fake").get(faking);
+        let _ = app.at("/fake").get(faking);
         // Generate :nb fake mails, 1 if not a number
-        app.at("/fake/:nb").get(faking);
+        let _ = app.at("/fake/:nb").get(faking);
     }
 
     Ok(app)
@@ -370,7 +379,7 @@ mod tests {
                 mails.push(mail.clone());
                 tx_mail_broker.send(MailEvt::NewMail(mail)).await.unwrap();
             }
-            spawn_task_and_swallow_log_errors(
+            let _ = spawn_task_and_swallow_log_errors(
                 "test_routes_mails".to_string(),
                 mail_broker(rx_mail_broker),
             );
@@ -416,7 +425,7 @@ mod tests {
             {
                 let mut req: Request =
                     Request::new(Method::Get, Url::parse("http://localhost/").unwrap());
-                req.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
+                let _ = req.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
                 let mut res: Response = app.respond(req).await.unwrap();
                 assert_eq!(
                     res.header(headers::CONTENT_TYPE).unwrap(),

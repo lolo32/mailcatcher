@@ -14,7 +14,7 @@ lazy_static! {
         let mut m: fnv::FnvHashMap<String, u8> = fnv::FnvHashMap::default();
         // Insert with 0 leading
         for i in 0x00..=0xFF {
-            m.insert(format!("{:02X}", i), i);
+            let _ = m.insert(format!("{:02X}", i), i);
         }
         m
     };
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn decode_string_base64_encoded() {
-        let text:&str = "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?= =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=";
+        let text: &str = "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\n =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=";
         let a: String = decode_string(text);
 
         assert_eq!(

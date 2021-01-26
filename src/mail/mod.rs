@@ -68,7 +68,7 @@ impl Mail {
         };
 
         // Store RAW mail content
-        mail.data.insert(Type::Raw, data.to_string());
+        let _ = mail.data.insert(Type::Raw, data.to_string());
 
         let (headers, body): (String, String) = Mail::split_header_body(data);
 
@@ -86,7 +86,7 @@ impl Mail {
             mail.headers.push(header.to_string());
         }
 
-        mail.data.insert(Type::Text, body);
+        let _ = mail.data.insert(Type::Text, body);
 
         // Extract Date
         let date_header: Vec<String> = mail.get_header_content("Date", HeaderRepresentation::Raw);

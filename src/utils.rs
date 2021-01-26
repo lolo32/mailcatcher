@@ -7,8 +7,8 @@ use std::{
 use async_std::{net::SocketAddr, task};
 use log::{error, info};
 
-// Spawn a new async task, waiting it completion,
-// it display it's status at the end: Success or Error
+/// Spawn a new async task, waiting it completion,
+/// it display it's status at the end: Success or Error
 pub fn spawn_task_and_swallow_log_errors<F>(task_name: String, fut: F) -> task::JoinHandle<()>
 where
     F: Future<Output = crate::Result<()>> + Send + 'static,
@@ -19,7 +19,7 @@ where
         .unwrap()
 }
 
-// Log Success or Error of the future completion
+/// Log Success or Error of the future completion
 async fn log_errors<F, T, E>(task_name: String, fut: F) -> Option<T>
 where
     F: Future<Output = Result<T, E>>,
