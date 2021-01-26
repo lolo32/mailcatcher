@@ -6,6 +6,7 @@
     unsafe_code,
     unused_extern_crates,
     unused_import_braces,
+    unused_lifetimes,
     unused_qualifications,
     unused_results
 )]
@@ -26,9 +27,9 @@ use structopt::StructOpt;
 use tide::Server;
 
 use crate::{
-    http::{bind_http, sse_evt::SseEvt, Params, State},
+    http::{bind as bind_http, sse_evt::SseEvt, Params, State},
     mail::{
-        broker::{mail_broker, MailEvt},
+        broker::{process as mail_broker, MailEvt},
         Mail,
     },
     utils::spawn_task_and_swallow_log_errors,
@@ -102,32 +103,33 @@ async fn main_fut(opt: Opt) -> Result<()> {
         #[cfg(feature = "faking")]
         tx_new_mail: tx_mail_from_smtp.clone(),
     };
-    let _ = spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
-        loop {
-            // To do on each received new mail
-            if let Some(mail) = rx_mail_from_smtp.next().await {
-                info!("Received new mail: {:?}", mail);
-                // Notify javascript side by SSE
-                match tx_http_new_mail.send(MailEvt::NewMail(mail.clone())).await {
-                    Ok(()) => {
-                        tx_new_mail.send(mail).await.unwrap();
-                        trace!("Mail stored successfully")
+    let _mail_notifier_task =
+        spawn_task_and_swallow_log_errors("Task: Mail notifier".into(), async move {
+            loop {
+                // To do on each received new mail
+                if let Some(mail) = rx_mail_from_smtp.next().await {
+                    info!("Received new mail: {:?}", mail);
+                    // Notify javascript side by SSE
+                    match tx_http_new_mail.send(MailEvt::NewMail(mail.clone())).await {
+                        Ok(()) => {
+                            tx_new_mail.send(mail).await.unwrap();
+                            trace!("Mail stored successfully")
+                        }
+                        Err(e) => error!("Mail stored error: {:?}", e),
                     }
-                    Err(e) => error!("Mail stored error: {:?}", e),
                 }
             }
-        }
-    });
+        });
 
     // Starting SMTP side
-    let s = smtp::serve_smtp(
+    let s = smtp::serve(
         opt.smtp,
         &opt.smtp_name,
         tx_mail_from_smtp,
         opt.use_starttls,
     );
     // Starting HTTP side
-    let http_app: Server<State<SseEvt>> = http::serve_http(http_params).await?;
+    let http_app: Server<State<SseEvt>> = http::init(http_params).await?;
 
     // Open browser window at start if specified
     if opt.browser {

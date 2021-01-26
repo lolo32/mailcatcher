@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_std::channel::{Receiver, Sender};
 use futures::StreamExt;
 use log::trace;
@@ -19,59 +21,61 @@ pub enum MailEvt {
     RemoveAll(Sender<Ulid>),
 }
 
-pub async fn mail_broker(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
+pub async fn process(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
     // This is the mail tank
-    let mut mails: fnv::FnvHashMap<Ulid, Mail> = Default::default();
+    let mut mails: fnv::FnvHashMap<Ulid, Mail> = HashMap::default();
 
-    let _ = spawn_task_and_swallow_log_errors("Mail broker".to_string(), async move {
-        loop {
-            if let Some(evt) = receiver.next().await {
-                trace!("processing MailEvt: {:?}", evt);
-                match evt {
-                    // A new mail, add it to the list
-                    MailEvt::NewMail(mail) => {
-                        let _ = mails.insert(mail.get_id(), mail.clone());
-                    }
-                    // Want to retrieve the mail from this id
-                    MailEvt::GetMail(sender, id) => {
-                        sender.send(mails.get(&id).cloned()).await?;
-                        drop(sender);
-                    }
-                    // Want to retrieve all mails
-                    MailEvt::GetAll(sender) => {
-                        for mail in mails.values().cloned() {
-                            sender.send(mail).await?
+    let _mail_processing_task =
+        spawn_task_and_swallow_log_errors("Mail broker".to_string(), async move {
+            loop {
+                if let Some(evt) = receiver.next().await {
+                    trace!("processing MailEvt: {:?}", evt);
+                    match evt {
+                        // A new mail, add it to the list
+                        MailEvt::NewMail(mail) => {
+                            let _ = mails.insert(mail.get_id(), mail.clone());
                         }
-                        drop(sender);
-                    }
-                    // Remove a mail by the id
-                    MailEvt::Remove(sender, id) => {
-                        sender.send(mails.remove(&id).map(|m| m.get_id())).await?;
-                        drop(sender);
-                    }
-                    // Remove all mails
-                    MailEvt::RemoveAll(sender) => {
-                        let ids: Vec<Ulid> = mails.keys().cloned().collect();
+                        // Want to retrieve the mail from this id
+                        MailEvt::GetMail(sender, id) => {
+                            sender.send(mails.get(&id).cloned()).await?;
+                            drop(sender);
+                        }
+                        // Want to retrieve all mails
+                        MailEvt::GetAll(sender) => {
+                            for mail in mails.values().cloned() {
+                                sender.send(mail).await?
+                            }
+                            drop(sender);
+                        }
+                        // Remove a mail by the id
+                        MailEvt::Remove(sender, id) => {
+                            sender.send(mails.remove(&id).map(|m| m.get_id())).await?;
+                            drop(sender);
+                        }
+                        // Remove all mails
+                        MailEvt::RemoveAll(sender) => {
+                            let ids: Vec<Ulid> = mails.keys().cloned().collect();
 
-                        for id in ids {
-                            let _ = mails.remove(&id);
-                            sender.send(id).await?;
+                            for id in ids {
+                                let _ = mails.remove(&id);
+                                sender.send(id).await?;
+                            }
+                            drop(sender);
                         }
-                        drop(sender);
                     }
                 }
             }
-        }
-    });
+        });
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use async_std::{channel, prelude::FutureExt, task};
     use std::time::Duration;
+
+    use super::*;
 
     const DATA_SIMPLE: &str = r"Date: Sun, 22 Nov 2020 01:58:23 +0100
 To: to@mail.com
@@ -92,7 +96,7 @@ This is a test mailing";
             let (sender, receiver): crate::Channel<MailEvt> = channel::unbounded();
 
             // Launch and process commands
-            assert!(mail_broker(receiver)
+            assert!(process(receiver)
                 .try_join(async move {
                     // -----------------------
                     // Test adding 1 mail

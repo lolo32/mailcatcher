@@ -21,7 +21,7 @@ pub struct SseData<'a> {
     pub data: Cow<'a, str>,
 }
 
-/// Convert from SseEvt to SseData
+/// Convert from `SseEvt` to `SseData`
 impl From<SseEvt> for SseData<'_> {
     fn from(sse_evt: SseEvt) -> Self {
         match sse_evt {

@@ -22,7 +22,7 @@ where
 /// Log Success or Error of the future completion
 async fn log_errors<F, T, E>(task_name: String, fut: F) -> Option<T>
 where
-    F: Future<Output = Result<T, E>>,
+    F: Future<Output = Result<T, E>> + Send,
     E: std::fmt::Display,
 {
     match fut.await {
@@ -60,22 +60,18 @@ impl ConnectionInfo {
 
 impl Default for ConnectionInfo {
     fn default() -> Self {
-        ConnectionInfo::new(None, None)
+        Self::new(None, None)
     }
 }
 
 impl fmt::Display for ConnectionInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let peer: String = if let Some(addr) = self.peer_addr {
-            addr.to_string()
-        } else {
-            "Unknown".to_string()
-        };
-        let local: String = if let Some(addr) = self.local_addr {
-            addr.to_string()
-        } else {
-            "Unknown".to_string()
-        };
+        let peer: String = self
+            .peer_addr
+            .map_or_else(|| "Unknown".to_string(), |addr| addr.to_string());
+        let local: String = self
+            .local_addr
+            .map_or_else(|| "Unknown".to_string(), |addr| addr.to_string());
 
         f.write_str(
             format!(

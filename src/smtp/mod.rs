@@ -27,7 +27,7 @@ const MSG_502_NOT_IMPLEMENTED: &[u8] = b"502 Command not implemented\r\n";
 const MSG_503_BAD_SEQUENCE: &[u8] = b"503 Bad sequence of commands\r\n";
 
 /// Serve SMTP
-pub async fn serve_smtp(
+pub async fn serve(
     port: u16,
     server_name: &str,
     mails_broker: Sender<Mail>,
@@ -93,7 +93,7 @@ async fn accept_loop(
                 ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
             info!("Accepting new connection from: {}", stream.peer_addr()?);
             // Spawn local processing
-            let _ = spawn_task_and_swallow_log_errors(
+            let _smtp_processing_task = spawn_task_and_swallow_log_errors(
                 format!("Task: TCP transmission {}", conn),
                 connection_loop(
                     stream,
@@ -163,6 +163,7 @@ struct Smtp<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> {
     data: Cow<'a, str>,
 }
 
+#[allow(unused_lifetimes)]
 impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
     pub fn new(stream: &S, server_name: String, use_starttls: bool) -> Smtp<'a, S> {
         Self {
@@ -173,7 +174,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             addr_from: None,
             addr_to: Vec::new(),
             receive_data: false,
-            data: Default::default(),
+            data: Cow::default(),
         }
     }
 
@@ -270,8 +271,11 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
                 self.remote_name.is_some() && self.addr_from.is_some() && !self.addr_to.is_empty()
             }
             // Always valid at anytime
-            Command::Noop | Command::Quit | Command::Reset => true,
-            Command::DataEnd | Command::Error(_) => true,
+            Command::Noop
+            | Command::Quit
+            | Command::Reset
+            | Command::DataEnd
+            | Command::Error(_) => true,
             // Only valid if specified at command line option, invalid otherwise
             Command::StartTls if self.use_starttls => true,
             Command::StartTls => false,
@@ -282,7 +286,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
     pub async fn process_command(&mut self, command: &Command<'a>) -> crate::Result<Option<Mail>> {
         match command {
             // Check if command is valid at this time of speaking
-            action if !self.is_valid(&action) => {
+            action if !self.is_valid(action) => {
                 self.write(MSG_503_BAD_SEQUENCE).await?;
                 Ok(None)
             }
@@ -422,7 +426,7 @@ mod tests {
 
             let (sender, mut receiver): crate::Channel<Mail> = bounded(1);
 
-            let serve = serve_smtp(port, MY_NAME, sender, false);
+            let serve = serve(port, MY_NAME, sender, false);
 
             let fut = async move {
                 let (mut lines, mut stream) = connect_to(port).await?;
