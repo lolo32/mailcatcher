@@ -3,6 +3,9 @@ name = "mailcatcher-derive"
 version = "0.1.0"
 authors = ["Lolo_32 <lol.b@free.fr>"]
 edition = "2018"
+license = "Apache-2.0"
+license-file = "../LICENSE.txt"
+description = "Embed file inside binary build, used by mailcatcher"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
