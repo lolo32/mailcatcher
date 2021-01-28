@@ -71,21 +71,21 @@ where
             )
         });
     // Get RAW format mail
-    let _route_mail_id_source = app
-        .at("/mail/:id/source")
-        .get(|req: Request<State<T>>| async move {
-            if let Some(mail) = get_mail(&req).await? {
-                if let Some(raw) = mail.get_data(&Type::Raw) {
-                    let (headers, body): (String, String) = Mail::split_header_body(raw);
-                    return Ok(Body::from_json(&json!({
-                        "headers": headers,
-                        "content": body,
-                    }))?
-                    .into());
+    let _route_mail_id_source =
+        app.at("/mail/:id/source")
+            .get(|req: Request<State<T>>| async move {
+                if let Some(mail) = get_mail(&req).await? {
+                    if let Some(raw) = mail.get_data(&Type::Raw) {
+                        let (headers, body): (String, String) = Mail::split_header_body(raw);
+                        return Ok(Body::from_json(&json!({
+                            "headers": headers,
+                            "content": body,
+                        }))?
+                        .into());
+                    }
                 }
-            }
-            Ok(Response::new(StatusCode::NotFound))
-        });
+                Ok(Response::new(StatusCode::NotFound))
+            });
 }
 
 /// Retrieve a mail from the the request, extracting the ID
@@ -98,7 +98,10 @@ where
     // Convert ID string to Ulid
     Ok(if let Ok(id) = Ulid::from_string(id) {
         let (s, mut r): crate::Channel<Option<Mail>> = channel::bounded(1);
-        req.state().mail_broker.send(MailEvt::GetMail(s, id)).await?;
+        req.state()
+            .mail_broker
+            .send(MailEvt::GetMail(s, id))
+            .await?;
         // Get mails pool
         let mail: Option<Mail> = r.next().await.expect("received mail");
         trace!("mail with id {} found {:?}", id, mail);
