@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Lolo_32 <lol.b@free.fr>"]
 edition = "2018"
 license = "Apache-2.0"
-license-file = "LICENSE.txt"
 description = "Catchall mail SMTP server used on development computer"
 keywords = ["smtp"]
 
