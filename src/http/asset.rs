@@ -59,3 +59,65 @@ pub fn send(req: &Request, name: &str, mime: Mime) -> Response {
     // Return the Response with content
     response.body(&*content).build()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{env, fs::metadata, path::Path};
+
+    use tide::http::{mime, Method, Request};
+
+    use super::*;
+
+    #[test]
+    fn compressed() {
+        let mut request = Request::new(Method::Get, "http://localhost/");
+        let _ = request.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
+        let res = send(&request, "home.html", mime::HTML);
+
+        let header = res.header(headers::CONTENT_TYPE).unwrap();
+        assert_eq!(header[0].to_string(), mime::HTML.to_string());
+
+        let header = res.header(headers::CONTENT_ENCODING).unwrap();
+        assert_eq!(header[0], "deflate");
+
+        let meta = metadata(
+            Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap())
+                .join("asset")
+                .join("home.html"),
+        )
+        .unwrap();
+
+        let header = res.header(headers::CONTENT_LENGTH).unwrap();
+        let size: u64 = header[0].to_string().parse().unwrap();
+        assert!(size < meta.len());
+
+        let header = res.header(headers::LAST_MODIFIED).unwrap();
+        assert!(header[0].to_string().len() > 1);
+    }
+
+    #[test]
+    fn uncompressed() {
+        let request = Request::new(Method::Get, "http://localhost/");
+        let res = send(&request, "home.html", mime::HTML);
+
+        let header = res.header(headers::CONTENT_TYPE).unwrap();
+        assert_eq!(header[0].to_string(), mime::HTML.to_string());
+
+        let header = res.header(headers::CONTENT_ENCODING);
+        assert!(header.is_none());
+
+        let meta = metadata(
+            Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap())
+                .join("asset")
+                .join("home.html"),
+        )
+        .unwrap();
+
+        let header = res.header(headers::CONTENT_LENGTH).unwrap();
+        let size: u64 = header[0].to_string().parse().unwrap();
+        assert_eq!(size, meta.len());
+
+        let header = res.header(headers::LAST_MODIFIED).unwrap();
+        assert!(header[0].to_string().len() > 1);
+    }
+}
