@@ -8,7 +8,7 @@ use super::{
 };
 
 /// Handle Server-Sent Events
-pub async fn handle_sse(req: Request<State<SseEvt>>, sender: Sender) -> tide::Result<()> {
+pub async fn handle(req: Request<State<SseEvt>>, sender: Sender) -> tide::Result<()> {
     // Retrieve the SSE stream notifications
     let mut sse_stream = req.state().sse_stream.clone();
 
@@ -28,9 +28,8 @@ pub async fn handle_sse(req: Request<State<SseEvt>>, sender: Sender) -> tide::Re
         if sent.is_err() {
             warn!("Err, disconnected: {:?}", sent);
             break;
-        } else {
-            trace!("### Server-Sent Events sent");
         }
+        trace!("### Server-Sent Events sent");
     }
     info!("### Exit /sse");
     Ok(())

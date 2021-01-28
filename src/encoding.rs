@@ -5,16 +5,16 @@ use regex::{Captures, Regex};
 lazy_static! {
     static ref RE_REMOVE_SPACE: Regex =
         Regex::new(r"(?P<first>=\?[^?]+\?.\?.+?\?=)[ \t\r\n]+(?P<second>=\?[^?]+\?.\?.+?\?=)")
-            .unwrap();
+            .expect("re remove space");
     static ref RE_GENERAL: Regex =
-        Regex::new(r"(=\?(?P<charset>[^?]+)\?(?P<encoding>.)\?(?P<encoded_text>.+?)\?=)").unwrap();
+        Regex::new(r"(=\?(?P<charset>[^?]+)\?(?P<encoding>.)\?(?P<encoded_text>.+?)\?=)").expect("re general");
     static ref RE_QUOTE: regex::bytes::Regex =
-        regex::bytes::Regex::new("\x3D([\x30-\x39\x41-\x46]{2})").unwrap();
+        regex::bytes::Regex::new("\x3D([\x30-\x39\x41-\x46]{2})").expect("re quote");
     static ref HEX_BYTE: fnv::FnvHashMap<String, u8> = {
         let mut m: fnv::FnvHashMap<String, u8> = fnv::FnvHashMap::default();
         // Insert with 0 leading
         for i in 0x00..=0xFF {
-            m.insert(format!("{:02X}", i), i);
+            let _ = m.insert(format!("{:02X}", i), i);
         }
         m
     };
@@ -53,7 +53,7 @@ fn rfc2047_decode(caps: &Captures) -> String {
 }
 
 fn replace_byte(caps: &regex::bytes::Captures) -> Vec<u8> {
-    let index: String = String::from_utf8((&caps[1]).to_vec()).unwrap();
+    let index = String::from_utf8((&caps[1]).to_vec()).expect("invalid utf8 sequence");
     vec![HEX_BYTE[&index]]
 }
 
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn decode_string_base64_encoded() {
-        let text:&str = "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?= =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=";
+        let text: &str = "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\n =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=";
         let a: String = decode_string(text);
 
         assert_eq!(

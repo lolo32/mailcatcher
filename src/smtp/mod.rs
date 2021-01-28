@@ -3,12 +3,12 @@ use std::borrow::Cow;
 use async_std::{
     channel::Sender,
     io::BufReader,
-    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    net::{Incoming, SocketAddr, TcpListener, ToSocketAddrs},
     task,
 };
 use futures::{
     stream::FuturesUnordered,
-    {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
+    AsyncRead, AsyncWrite, {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
 use log::{error, info, trace};
 
@@ -17,8 +17,6 @@ use crate::{
     smtp::command::Command,
     utils::{spawn_task_and_swallow_log_errors, ConnectionInfo},
 };
-use async_std::net::Incoming;
-use futures::io::Lines;
 
 mod command;
 
@@ -29,7 +27,7 @@ const MSG_502_NOT_IMPLEMENTED: &[u8] = b"502 Command not implemented\r\n";
 const MSG_503_BAD_SEQUENCE: &[u8] = b"503 Bad sequence of commands\r\n";
 
 /// Serve SMTP
-pub async fn serve_smtp(
+pub async fn serve(
     port: u16,
     server_name: &str,
     mails_broker: Sender<Mail>,
@@ -48,7 +46,7 @@ pub async fn serve_smtp(
         // ... spawn a handler to process incoming connection
         .map(|listener| {
             accept_loop(
-                listener.unwrap(),
+                listener.expect("tcp listener"),
                 server_name,
                 mails_broker.clone(),
                 use_starttls,
@@ -90,12 +88,12 @@ async fn accept_loop(
     // For each new connection
     loop {
         if let Some(stream) = incoming.next().await {
-            let stream: TcpStream = stream?;
+            let stream = stream?;
             let conn: ConnectionInfo =
                 ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
             info!("Accepting new connection from: {}", stream.peer_addr()?);
             // Spawn local processing
-            spawn_task_and_swallow_log_errors(
+            let _smtp_processing_task = spawn_task_and_swallow_log_errors(
                 format!("Task: TCP transmission {}", conn),
                 connection_loop(
                     stream,
@@ -110,22 +108,25 @@ async fn accept_loop(
 }
 
 /// Deals with each new connection
-async fn connection_loop(
-    stream: TcpStream,
+async fn connection_loop<S>(
+    stream: S,
     conn: ConnectionInfo,
     server_name: String,
     use_starttls: bool,
     mails_broker: Sender<Mail>,
-) -> crate::Result<()> {
+) -> crate::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone,
+{
     // Initialize the SMTP connection
-    let mut smtp: Smtp = Smtp::new(&stream, server_name, use_starttls);
+    let mut smtp = Smtp::new(&stream, server_name, use_starttls);
 
     // Send SMTP banner to client
     smtp.send_server_name().await?;
 
     // Generate a line reader to process commands
-    let reader: BufReader<&TcpStream> = BufReader::new(&stream);
-    let mut lines: Lines<BufReader<&TcpStream>> = reader.lines();
+    let reader = BufReader::new(stream);
+    let mut lines = reader.lines();
 
     // Begin command loop
     while let Some(line) = lines.next().await {
@@ -151,9 +152,9 @@ async fn connection_loop(
     Ok(())
 }
 
-struct Smtp<'a> {
+struct Smtp<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> {
     server_name: String,
-    write_stream: TcpStream,
+    write_stream: S,
     use_starttls: bool,
     remote_name: Option<String>,
     addr_from: Option<String>,
@@ -162,8 +163,9 @@ struct Smtp<'a> {
     data: Cow<'a, str>,
 }
 
-impl<'a> Smtp<'a> {
-    pub fn new(stream: &TcpStream, server_name: String, use_starttls: bool) -> Smtp<'a> {
+#[allow(unused_lifetimes)]
+impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
+    pub fn new(stream: &S, server_name: String, use_starttls: bool) -> Smtp<'a, S> {
         Self {
             server_name,
             write_stream: stream.clone(),
@@ -172,7 +174,7 @@ impl<'a> Smtp<'a> {
             addr_from: None,
             addr_to: Vec::new(),
             receive_data: false,
-            data: Default::default(),
+            data: Cow::default(),
         }
     }
 
@@ -269,8 +271,11 @@ impl<'a> Smtp<'a> {
                 self.remote_name.is_some() && self.addr_from.is_some() && !self.addr_to.is_empty()
             }
             // Always valid at anytime
-            Command::Noop | Command::Quit | Command::Reset => true,
-            Command::DataEnd | Command::Error(_) => true,
+            Command::Noop
+            | Command::Quit
+            | Command::Reset
+            | Command::DataEnd
+            | Command::Error(_) => true,
             // Only valid if specified at command line option, invalid otherwise
             Command::StartTls if self.use_starttls => true,
             Command::StartTls => false,
@@ -281,7 +286,7 @@ impl<'a> Smtp<'a> {
     pub async fn process_command(&mut self, command: &Command<'a>) -> crate::Result<Option<Mail>> {
         match command {
             // Check if command is valid at this time of speaking
-            action if !self.is_valid(&action) => {
+            action if !self.is_valid(action) => {
                 self.write(MSG_503_BAD_SEQUENCE).await?;
                 Ok(None)
             }
@@ -351,8 +356,11 @@ impl<'a> Smtp<'a> {
             Command::DataEnd => {
                 trace!("{}", self.data);
                 // Instantiate a new mail
-                let mail: Mail =
-                    Mail::new(self.addr_from.as_ref().unwrap(), &self.addr_to, &self.data);
+                let mail: Mail = Mail::new(
+                    self.addr_from.as_ref().expect("sender address"),
+                    &self.addr_to,
+                    &self.data,
+                );
 
                 self.receive_data = false;
                 self.addr_from = None;
@@ -421,7 +429,7 @@ mod tests {
 
             let (sender, mut receiver): crate::Channel<Mail> = bounded(1);
 
-            let serve = serve_smtp(port, MY_NAME, sender, false);
+            let serve = serve(port, MY_NAME, sender, false);
 
             let fut = async move {
                 let (mut lines, mut stream) = connect_to(port).await?;

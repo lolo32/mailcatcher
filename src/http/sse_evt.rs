@@ -21,8 +21,8 @@ pub struct SseData<'a> {
     pub data: Cow<'a, str>,
 }
 
-/// Convert from SseEvt to SseData
-impl<'a> From<SseEvt> for SseData<'a> {
+/// Convert from `SseEvt` to `SseData`
+impl From<SseEvt> for SseData<'_> {
     fn from(sse_evt: SseEvt) -> Self {
         match sse_evt {
             SseEvt::NewMail(mail) => {
@@ -32,7 +32,7 @@ impl<'a> From<SseEvt> for SseData<'a> {
                         .unwrap_or_else(|_| "".into())
                         .into_string()
                         .await
-                        .unwrap()
+                        .expect("json new mail")
                 });
                 SseData {
                     name: "newMail",

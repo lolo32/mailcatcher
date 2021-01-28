@@ -57,7 +57,7 @@ pub struct Mail {
 impl Mail {
     // Create a new mail
     pub fn new(from: &str, to: &[String], data: &str) -> Self {
-        let mut mail: Mail = Self {
+        let mut mail = Self {
             id: Ulid::new(),
             from: from.to_string(),
             to: to.to_vec(),
@@ -68,9 +68,9 @@ impl Mail {
         };
 
         // Store RAW mail content
-        mail.data.insert(Type::Raw, data.to_string());
+        let _ = mail.data.insert(Type::Raw, data.to_string());
 
-        let (headers, body): (String, String) = Mail::split_header_body(data);
+        let (headers, body): (String, String) = Self::split_header_body(data);
 
         // Parse the headers
         for header in headers.lines() {
@@ -86,10 +86,10 @@ impl Mail {
             mail.headers.push(header.to_string());
         }
 
-        mail.data.insert(Type::Text, body);
+        let _ = mail.data.insert(Type::Text, body);
 
         // Extract Date
-        let date_header: Vec<String> = mail.get_header_content("Date", HeaderRepresentation::Raw);
+        let date_header: Vec<String> = mail.get_header_content("Date", &HeaderRepresentation::Raw);
         if let Some(date_str) = date_header.first() {
             if let Ok(local_date) = DateTime::parse_from_rfc2822(date_str.as_str()) {
                 mail.date = local_date.with_timezone(&Utc);
@@ -98,7 +98,7 @@ impl Mail {
 
         // Extract Subject
         let subject_header: Vec<String> =
-            mail.get_header_content("Subject", HeaderRepresentation::Raw);
+            mail.get_header_content("Subject", &HeaderRepresentation::Raw);
         if let Some(subject) = subject_header.first() {
             mail.subject = subject.clone();
         }
@@ -136,26 +136,26 @@ impl Mail {
     }
 
     /// Retrieve the ID of the mail
-    pub fn get_id(&self) -> Ulid {
+    pub const fn get_id(&self) -> Ulid {
         self.id
     }
 
     /// Retrieve the sender address
-    pub fn from(&self) -> &String {
+    pub const fn from(&self) -> &String {
         &self.from
     }
     /// Retrieve the receivers addresses
-    pub fn to(&self) -> &Vec<String> {
+    pub const fn to(&self) -> &Vec<String> {
         &self.to
     }
 
     /// Retrieve mail date, either from the Date header or if not present from the reception time
-    pub fn get_date(&self) -> DateTime<Utc> {
+    pub const fn get_date(&self) -> DateTime<Utc> {
         self.date
     }
 
     /// Retrieve the subject
-    pub fn get_subject(&self) -> &String {
+    pub const fn get_subject(&self) -> &String {
         &self.subject
     }
 
@@ -171,7 +171,7 @@ impl Mail {
 
     /// Retrieve the header content, from the key name
     /// The data can be in literal format or humanized
-    pub fn get_header_content(&self, key: &str, raw: HeaderRepresentation) -> Vec<String> {
+    pub fn get_header_content(&self, key: &str, raw: &HeaderRepresentation) -> Vec<String> {
         let key: String = format!("{}: ", key);
         let key_len: usize = key.len();
 
@@ -179,16 +179,19 @@ impl Mail {
         self.get_headers(raw)
             .iter()
             // Filter over key name
-            .filter(|header| {
-                header.find(' ') == Some(key_len - 1) && &header[..key_len] == key.as_str()
+            .filter_map(|header| {
+                if header.find(' ') == Some(key_len - 1) && &header[..key_len] == key.as_str() {
+                    // strip only to header content
+                    Some(header[key_len..].to_string())
+                } else {
+                    None
+                }
             })
-            // strip only to header content
-            .map(|header| header[key_len..].to_string())
             .collect()
     }
 
     /// Retrieve headers list
-    pub fn get_headers(&self, format: HeaderRepresentation) -> Vec<String> {
+    pub fn get_headers(&self, format: &HeaderRepresentation) -> Vec<String> {
         self.headers
             .iter()
             .map(|header| match format {
@@ -200,7 +203,7 @@ impl Mail {
 
     /// Retrieve mail size
     pub fn get_size(&self) -> usize {
-        self.data.get(&Type::Raw).unwrap().len()
+        self.data.get(&Type::Raw).expect("raw mail").len()
     }
 
     /// Retrieve the data type part of the mail
@@ -212,7 +215,7 @@ impl Mail {
         json!({
             "id": self.get_id().to_string(),
             "from": self.from().to_string(),
-            "to": self.to().iter().map(|s| s.to_string()).collect::<Vec<String>>(),
+            "to": self.to(),
             "subject": self.get_subject().to_string(),
             "date": self.get_date().timestamp(),
             "size": self.get_size(),
@@ -224,8 +227,8 @@ impl Mail {
         fn make_first_uppercase(s: &str) -> String {
             format!(
                 "{}{}",
-                s.get(0..1).unwrap().to_uppercase(),
-                s.get(1..).unwrap()
+                s.get(0..1).expect("first character").to_uppercase(),
+                s.get(1..).expect("following characters")
             )
         }
 
@@ -263,7 +266,7 @@ impl Mail {
         )
         .fake();
 
-        let data: String = format!(
+        let mail_full: String = format!(
             "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
             date.to_rfc2822(),
             from_name,
@@ -276,12 +279,12 @@ impl Mail {
             FreeEmailProvider().fake::<String>(),
             body,
         );
-        trace!("Faking new mail:\n{}", data);
+        trace!("Faking new mail:\n{}", mail_full);
 
-        Mail::new(
+        Self::new(
             &format!("{}<{}>", from_name, from),
             &[format!("{}<{}>", to_name, to)],
-            &data,
+            &mail_full,
         )
     }
 }
@@ -366,14 +369,14 @@ This is the content of this mail... but it says nothing now.";
     #[test]
     fn multiline_header_content_and_humanized() {
         let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
-        let subject: Vec<String> = mail.get_header_content("Subject", HeaderRepresentation::Raw);
+        let subject: Vec<String> = mail.get_header_content("Subject", &HeaderRepresentation::Raw);
 
         assert_eq!(subject.len(), 1);
         let subject: &String = subject.get(0).unwrap();
         assert_eq!(subject, "=?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=");
 
         let subject: Vec<String> =
-            mail.get_header_content("Subject", HeaderRepresentation::Humanized);
+            mail.get_header_content("Subject", &HeaderRepresentation::Humanized);
 
         assert_eq!(subject.len(), 1);
         let subject: &String = subject.get(0).unwrap();

@@ -34,8 +34,13 @@ jobs:
           toolchain: stable
           override: true
 
-      # Runs the units tests
-      - name: Run cargo check
+      # Runs the compilation checks
+      - name: Run cargo check with defaults feature
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+
+      - name: Run cargo check with all features
         uses: actions-rs/cargo@v1
         with:
           command: check
@@ -101,8 +106,6 @@ jobs:
           command: build
           args: --all-features
         env:
-          CARGO_INCREMENTAL: 0
-          #RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
           RUSTFLAGS: "-Zinstrument-coverage"
 
       # Runs the units tests in Debug mode
@@ -112,18 +115,14 @@ jobs:
           command: test
           args: --all-features
         env:
-          CARGO_INCREMENTAL: 0
-          #RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
           RUSTFLAGS: "-Zinstrument-coverage"
+          LLVM_PROFILE_FILE: "your_name-%p-%m.profraw"
 
       - name: Install grcov
-        uses: actions-rs/install@v0.1
-        with:
-          crate: grcov
-          version: latest
+        run: curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
 
       - name: Gather coverage data
-        run: grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --output-path $LCOV_DESTINATION --service-name $GITHUB_WORKFLOW
+        run: ./grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --ignore "/*" --output-path $LCOV_DESTINATION --service-name $GITHUB_WORKFLOW
         env:
           LCOV_DESTINATION: ${{ runner.temp }}/lcov.info
 
