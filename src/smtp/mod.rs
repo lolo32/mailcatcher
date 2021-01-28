@@ -356,8 +356,11 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             Command::DataEnd => {
                 trace!("{}", self.data);
                 // Instantiate a new mail
-                let mail: Mail =
-                    Mail::new(self.addr_from.as_ref().expect("sender address"), &self.addr_to, &self.data);
+                let mail: Mail = Mail::new(
+                    self.addr_from.as_ref().expect("sender address"),
+                    &self.addr_to,
+                    &self.data,
+                );
 
                 self.receive_data = false;
                 self.addr_from = None;

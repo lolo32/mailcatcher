@@ -115,7 +115,10 @@ async fn main_fut(opt: Opt) -> Result<()> {
                     // Notify javascript side by SSE
                     match tx_http_new_mail.send(MailEvt::NewMail(mail.clone())).await {
                         Ok(()) => {
-                            tx_new_mail.send(mail).await.expect("sending new mail notification");
+                            tx_new_mail
+                                .send(mail)
+                                .await
+                                .expect("sending new mail notification");
                             trace!("Mail stored successfully")
                         }
                         Err(e) => error!("Mail stored error: {:?}", e),

@@ -2,10 +2,7 @@ use async_std::channel;
 use futures::StreamExt;
 use log::{error, info, trace};
 use serde_json::json;
-use tide::{
-    http::Response,
-    Body, Request, Server, StatusCode,
-};
+use tide::{http::Response, Body, Request, Server, StatusCode};
 use ulid::Ulid;
 
 use utils::get_mail;
