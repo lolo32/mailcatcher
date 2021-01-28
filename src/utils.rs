@@ -16,7 +16,7 @@ where
     task::Builder::new()
         .name(task_name.clone())
         .spawn(async move { log_errors(task_name, fut).await.unwrap_or_default() })
-        .unwrap()
+        .expect("spawn task")
 }
 
 /// Log Success or Error of the future completion

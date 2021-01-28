@@ -47,9 +47,9 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
                 let obj: serde_json::Value = json!({
                     "headers": mail.get_headers(&HeaderRepresentation::Humanized),
                     "raw": mail.get_headers(&HeaderRepresentation::Raw),
-                    "data": mail.get_text().unwrap().clone(),
+                    "data": mail.get_text().expect("json mail data").clone(),
                 });
-                Ok(Body::from_json(&obj).unwrap().into())
+                Ok(Body::from_json(&obj).expect("body from json").into())
             } else {
                 Ok(Response::new(StatusCode::NotFound))
             }
@@ -125,7 +125,7 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
             if let Ok(id) = Ulid::from_string(id) {
                 let (s, mut r): crate::Channel<Option<Ulid>> = channel::bounded(1);
                 req.state().mail_broker.send(MailEvt::Remove(s, id)).await?;
-                let mail: Option<Ulid> = r.next().await.unwrap();
+                let mail: Option<Ulid> = r.next().await.expect("received mail id");
                 if mail.is_some() {
                     info!("mail removed {:?}", mail);
                     req.state().sse_stream.send(&SseEvt::DelMail(id)).await?;

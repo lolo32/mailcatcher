@@ -23,7 +23,7 @@ where
             .send(MailEvt::GetMail(s, id))
             .await?;
         // Get mails pool
-        let mail: Option<Mail> = r.next().await.unwrap();
+        let mail: Option<Mail> = r.next().await.expect("received mail");
         trace!("mail with id {} found {:?}", id, mail);
         mail
     } else {

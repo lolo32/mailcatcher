@@ -32,7 +32,7 @@ impl From<SseEvt> for SseData<'_> {
                         .unwrap_or_else(|_| "".into())
                         .into_string()
                         .await
-                        .unwrap()
+                        .expect("json new mail")
                 });
                 SseData {
                     name: "newMail",

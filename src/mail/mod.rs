@@ -203,7 +203,7 @@ impl Mail {
 
     /// Retrieve mail size
     pub fn get_size(&self) -> usize {
-        self.data.get(&Type::Raw).unwrap().len()
+        self.data.get(&Type::Raw).expect("raw mail").len()
     }
 
     /// Retrieve the data type part of the mail
@@ -227,8 +227,8 @@ impl Mail {
         fn make_first_uppercase(s: &str) -> String {
             format!(
                 "{}{}",
-                s.get(0..1).unwrap().to_uppercase(),
-                s.get(1..).unwrap()
+                s.get(0..1).expect("first character").to_uppercase(),
+                s.get(1..).expect("following characters")
             )
         }
 

@@ -81,7 +81,7 @@ pub async fn init(params: Params) -> crate::Result<Server<State<SseEvt>>> {
             loop {
                 trace!("Sending ping");
                 // Do nothing, it's just to empty the stream
-                sse_tx_ping_stream.send(&SseEvt::Ping).await.unwrap();
+                sse_tx_ping_stream.send(&SseEvt::Ping).await.expect("sending ping");
                 task::sleep(Duration::from_secs(10)).await;
             }
         });

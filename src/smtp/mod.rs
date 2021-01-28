@@ -46,7 +46,7 @@ pub async fn serve(
         // ... spawn a handler to process incoming connection
         .map(|listener| {
             accept_loop(
-                listener.unwrap(),
+                listener.expect("tcp listener"),
                 server_name,
                 mails_broker.clone(),
                 use_starttls,
@@ -357,7 +357,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
                 trace!("{}", self.data);
                 // Instantiate a new mail
                 let mail: Mail =
-                    Mail::new(self.addr_from.as_ref().unwrap(), &self.addr_to, &self.data);
+                    Mail::new(self.addr_from.as_ref().expect("sender address"), &self.addr_to, &self.data);
 
                 self.receive_data = false;
                 self.addr_from = None;
