@@ -9,9 +9,9 @@ use crate::{
 #[allow(clippy::shadow_unrelated)]
 pub fn append_route(app: &mut Server<State<SseEvt>>) {
     // Generate one fake mail
-    let _route = app.at("/fake").get(faking);
+    let _route_fake = app.at("/fake").get(faking);
     // Generate :nb fake mails, 1 if not a number
-    let _route = app.at("/fake/:nb").get(faking);
+    let _route_fake_nb = app.at("/fake/:nb").get(faking);
 }
 
 async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
