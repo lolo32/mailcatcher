@@ -8,7 +8,10 @@
     unused_import_braces,
     unused_lifetimes,
     unused_qualifications,
-    unused_results
+    unused_results,
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery
 )]
 
 //! This software can be used to have a SMTP mail server on any computer that

@@ -70,7 +70,7 @@ pub async fn init(params: Params) -> crate::Result<Server<State<SseEvt>>> {
             loop {
                 trace!("Consume SSE notification stream");
                 // Do nothing, it's just to empty the stream
-                let _ = sse_noop_stream.next().await;
+                let _sse_evt = sse_noop_stream.next().await;
             }
         });
 
@@ -161,7 +161,7 @@ mod tests {
                 mails.push(mail.clone());
                 tx_mail_broker.send(MailEvt::NewMail(mail)).await.unwrap();
             }
-            let _ = spawn_task_and_swallow_log_errors(
+            let _mail_broker_task = spawn_task_and_swallow_log_errors(
                 "test_routes_mails".to_string(),
                 mail_broker(rx_mail_broker),
             );

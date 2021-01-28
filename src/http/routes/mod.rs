@@ -3,41 +3,30 @@ use futures::StreamExt;
 use log::{error, info, trace};
 use serde_json::json;
 use tide::{
-    http::{mime, Response},
+    http::Response,
     Body, Request, Server, StatusCode,
 };
 use ulid::Ulid;
 
 use utils::get_mail;
 
-use crate::{
-    http::asset::send as send_asset,
-    mail::{broker::MailEvt, HeaderRepresentation, Mail, Type},
-};
+use crate::mail::{broker::MailEvt, HeaderRepresentation, Mail, Type};
 
 use super::{sse, sse_evt::SseEvt, State};
 
+#[cfg(feature = "faking")]
+mod faking;
+mod static_;
 mod utils;
 
+#[allow(clippy::too_many_lines)]
 pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> {
     let mut app: Server<State<SseEvt>> = tide::with_state(state);
 
-    let _ = app.at("/").get(|req: Request<State<SseEvt>>| async move {
-        Ok(send_asset(&req, "home.html", mime::HTML))
-    });
-    let _ = app
-        .at("/hyperapp.js")
-        .get(|req: Request<State<SseEvt>>| async move {
-            Ok(send_asset(&req, "hyperapp.js", mime::JAVASCRIPT))
-        });
-    let _ = app
-        .at("/w3.css")
-        .get(
-            |req: Request<State<SseEvt>>| async move { Ok(send_asset(&req, "w3.css", mime::CSS)) },
-        );
+    static_::append_route(&mut app).await;
 
     // Get all mail list
-    let _ = app
+    let _route = app
         .at("/mails")
         .get(|req: Request<State<SseEvt>>| async move {
             let (s, mut r): crate::Channel<Mail> = channel::unbounded();
@@ -51,7 +40,7 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
             Body::from_json(&json!(&resp))
         });
     // Get mail details
-    let _ = app
+    let _route = app
         .at("/mail/:id")
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
@@ -66,7 +55,7 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
             }
         });
     // Get mail in text format
-    let _ = app
+    let _route = app
         .at("/mail/:id/text")
         .get(|req: Request<State<SseEvt>>| async move {
             (get_mail(&req).await?).map_or_else(
@@ -81,7 +70,7 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
             )
         });
     // Get mail in html format
-    let _ = app
+    let _route = app
         .at("/mail/:id/html")
         .get(|req: Request<State<SseEvt>>| async move {
             (get_mail(&req).await?).map_or_else(
@@ -96,7 +85,7 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
             )
         });
     // Get RAW format mail
-    let _ = app
+    let _route = app
         .at("/mail/:id/source")
         .get(|req: Request<State<SseEvt>>| async move {
             if let Some(mail) = get_mail(&req).await? {
@@ -113,7 +102,7 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
         });
 
     // Remove all mails
-    let _ = app
+    let _route = app
         .at("/remove/all")
         .get(|req: Request<State<SseEvt>>| async move {
             let (s, mut r): crate::Channel<Ulid> = channel::unbounded();
@@ -129,7 +118,7 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
             Ok(format!("OK: {}", nb))
         });
     // Remove a mail by id
-    let _ = app
+    let _route = app
         .at("/remove/:id")
         .get(|req: Request<State<SseEvt>>| async move {
             let id: &str = req.param("id")?;
@@ -147,35 +136,10 @@ pub async fn init(state: State<SseEvt>) -> crate::Result<Server<State<SseEvt>>> 
         });
 
     // SSE stream
-    let _ = app.at("/sse").get(tide::sse::endpoint(sse::handle));
+    let _route = app.at("/sse").get(tide::sse::endpoint(sse::handle));
 
     #[cfg(feature = "faking")]
-    {
-        use log::debug;
-
-        async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
-            let nb: usize = req
-                .param("nb")
-                .map(|nb| usize::from_str_radix(nb, 10).unwrap_or(1))
-                .unwrap_or(1);
-
-            for _ in 0..nb {
-                let mail: Mail = Mail::fake();
-
-                match req.state().new_fake_mail.send(mail).await {
-                    Ok(()) => debug!("New faked mail sent!"),
-                    Err(e) => debug!("New mail error: {:?}", e),
-                }
-            }
-
-            Ok(format!("OK: {}", nb))
-        }
-
-        // Generate one fake mail
-        let _ = app.at("/fake").get(faking);
-        // Generate :nb fake mails, 1 if not a number
-        let _ = app.at("/fake/:nb").get(faking);
-    }
+    faking::append_route(&mut app);
 
     Ok(app)
 }

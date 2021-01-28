@@ -3,21 +3,16 @@ use std::borrow::Cow;
 use log::debug;
 use mailcatcher_derive::AssetEmbed;
 use tide::{
-    http::{headers, Mime},
-    Request, Response, ResponseBuilder, StatusCode,
+    http::{headers, Mime, Request},
+    Response, ResponseBuilder, StatusCode,
 };
-
-use super::State;
 
 #[derive(AssetEmbed)]
 #[folder = "asset/"]
 pub struct Asset;
 
 /// Generate a Response based on the name of the asset and the mime type
-pub fn send<T>(req: &Request<State<T>>, name: &str, mime: Mime) -> Response
-where
-    T: Send + Clone + 'static,
-{
+pub fn send(req: &Request, name: &str, mime: Mime) -> Response {
     // Look if the response can be compressed in deflate, or not
     let compressed: bool = req
         .header(headers::ACCEPT_ENCODING)
