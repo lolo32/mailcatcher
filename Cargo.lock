@@ -418,7 +418,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37e58ac78573c40708d45522f0d80fa2f01cc4f9b4e2bf749807255454312002"
 dependencies = [
  "bitflags",
- "textwrap 0.11.0",
+ "textwrap",
  "unicode-width",
 ]
 
@@ -993,7 +993,7 @@ name = "mailcatcher"
 version = "0.1.0"
 dependencies = [
  "async-std",
- "base64 0.13.0",
+ "base64 0.12.3",
  "broadcaster",
  "chrono",
  "encoding",
@@ -1010,7 +1010,7 @@ dependencies = [
  "serde",
  "serde_json",
  "structopt",
- "textwrap 0.13.2",
+ "textwrap",
  "tide",
  "ulid",
 ]
@@ -1650,12 +1650,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe0f37c9e8f3c5a4a66ad655a93c74daac4ad00c441533bf5c6e7990bb42604e"
 
 [[package]]
-name = "smawk"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1bc737c97d093feb72e67f4926d9b22d717ce8580cd25f0ce86d74e859c466d"
-
-[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1775,16 +1769,6 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 dependencies = [
- "unicode-width",
-]
-
-[[package]]
-name = "textwrap"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cdcf6b66102d38821c33eea2bf1e8b7bd738072171cbf8a0683fbb46fcb8b0b"
-dependencies = [
- "smawk",
  "unicode-width",
 ]
 

@@ -5,6 +5,9 @@ authors = ["Lolo_32 <lol.b@free.fr>"]
 edition = "2018"
 license = "Apache-2.0"
 description = "Embed file inside binary build, used by mailcatcher"
+repository = "https://github.com/lolo32/mailcatcher"
+categories = ["development-tools::build-utils"]
+keywords = ["file", "embed"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

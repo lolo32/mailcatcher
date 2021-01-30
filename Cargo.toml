@@ -5,7 +5,10 @@ authors = ["Lolo_32 <lol.b@free.fr>"]
 edition = "2018"
 license = "Apache-2.0"
 description = "Catchall mail SMTP server used on development computer"
-keywords = ["smtp"]
+keywords = ["smtp", "fake", "catchall"]
+repository = "https://github.com/lolo32/mailcatcher"
+categories = ["development-tools"]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,7 +27,7 @@ default-features = true
 features = ["unstable"]
 
 [dependencies.base64]
-version = "0.13.0"
+version = "=0.12"
 default-features = false
 
 [dependencies.broadcaster]
@@ -90,7 +93,7 @@ version = "0.3.21"
 default-features = false
 
 [dependencies.textwrap]
-version = "0.13.2"
+version = "=0.11"
 
 [dependencies.tide]
 version = "0.15.0"
