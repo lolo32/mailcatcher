@@ -61,7 +61,7 @@ version = "1.4.0"
 default-features = false
 
 [dependencies.log]
-version = "0.4.13"
+version = "0.4.14"
 default-features = false
 
 [dependencies.mailcatcher-derive]
@@ -81,7 +81,7 @@ default-features = false
 features = ["std"]
 
 [dependencies.serde]
-version = "1.0.120"
+version = "1.0.123"
 
 [dependencies.serde_json]
 version = "1.0.61"
@@ -96,7 +96,7 @@ default-features = false
 version = "=0.11"
 
 [dependencies.tide]
-version = "0.15.0"
+version = "0.16.0"
 default-features = false
 features = ["h1-server"]
 
