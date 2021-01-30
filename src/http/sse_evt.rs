@@ -60,7 +60,7 @@ mod tests {
         let sse_evt: SseEvt = SseEvt::Ping;
         let data: SseData = sse_evt.into();
         assert_eq!(data.name, "ping");
-        assert_eq!(data.data, "💓");
+        assert_eq!(data.data, "\u{1f493}");
 
         let id: Ulid = Ulid::new();
         let sse_evt: SseEvt = SseEvt::DelMail(id);

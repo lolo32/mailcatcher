@@ -93,7 +93,7 @@ mod tests {
         let text: &str = "From: =?ISO-8859-1?Q?Patrik_F=E4ltstr=F6m?= <paf@nada.kth.se>";
         let a: String = decode_string(text);
 
-        assert_eq!(a, "From: Patrik Fältström <paf@nada.kth.se>");
+        assert_eq!(a, "From: Patrik F\u{e4}ltstr\u{f6}m <paf@nada.kth.se>");
     }
 
     #[test]

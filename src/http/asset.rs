@@ -81,9 +81,12 @@ mod tests {
         assert_eq!(header[0], "deflate");
 
         let meta = metadata(
-            Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap())
-                .join("asset")
-                .join("home.html"),
+            Path::new(
+                &env::var("CARGO_MANIFEST_DIR")
+                    .unwrap_or_else(|_| env::current_dir().unwrap().to_str().unwrap().to_owned()),
+            )
+            .join("asset")
+            .join("home.html"),
         )
         .unwrap();
 
@@ -107,9 +110,12 @@ mod tests {
         assert!(header.is_none());
 
         let meta = metadata(
-            Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap())
-                .join("asset")
-                .join("home.html"),
+            Path::new(
+                &env::var("CARGO_MANIFEST_DIR")
+                    .unwrap_or_else(|_| env::current_dir().unwrap().to_str().unwrap().to_owned()),
+            )
+            .join("asset")
+            .join("home.html"),
         )
         .unwrap();
 

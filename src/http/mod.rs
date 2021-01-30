@@ -147,6 +147,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_routes() {
         task::block_on(async {
             let (tx_mail_broker, rx_mail_broker): crate::Channel<MailEvt> = channel::unbounded();
@@ -189,13 +190,13 @@ mod tests {
                 } else {
                     filename
                 };
-                let req: Request = Request::new(
+                let request: Request = Request::new(
                     Method::Get,
                     Url::parse(&format!("http://localhost/{}", url)).unwrap(),
                 );
-                let mut res: Response = app.respond(req).await.unwrap();
+                let mut response: Response = app.respond(request).await.unwrap();
                 assert_eq!(
-                    res.header(headers::CONTENT_TYPE).unwrap(),
+                    response.header(headers::CONTENT_TYPE).unwrap(),
                     &mime_type.to_string()
                 );
                 let mut fs: File = File::open(Path::new("asset").join(filename)).await.unwrap();
@@ -203,20 +204,23 @@ mod tests {
                 let read: usize = fs.read_to_string(&mut home_content).await.unwrap();
                 assert!(read > 0, "File content must have some bytes");
                 assert_eq!(read, home_content.len());
-                assert_eq!(res.body_string().await.unwrap(), home_content);
+                assert_eq!(response.body_string().await.unwrap(), home_content);
             }
 
             // Test deflate
             {
-                let mut req: Request =
+                let mut request: Request =
                     Request::new(Method::Get, Url::parse("http://localhost/").unwrap());
-                let _ = req.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
-                let mut res: Response = app.respond(req).await.unwrap();
+                let _ = request.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
+                let mut response: Response = app.respond(request).await.unwrap();
                 assert_eq!(
-                    res.header(headers::CONTENT_TYPE).unwrap(),
+                    response.header(headers::CONTENT_TYPE).unwrap(),
                     &mime::HTML.to_string()
                 );
-                assert_eq!(res.header(headers::CONTENT_ENCODING).unwrap(), "deflate");
+                assert_eq!(
+                    response.header(headers::CONTENT_ENCODING).unwrap(),
+                    "deflate"
+                );
                 let mut fs: File = File::open(Path::new("asset").join("home.html"))
                     .await
                     .unwrap();
@@ -224,7 +228,7 @@ mod tests {
                 let read: usize = fs.read_to_string(&mut home_content).await.unwrap();
                 assert!(read > 0, "File content must have some bytes");
                 assert_eq!(read, home_content.len());
-                let res_content: Vec<u8> = res.body_bytes().await.unwrap();
+                let res_content: Vec<u8> = response.body_bytes().await.unwrap();
                 // Deflate the content
                 let res_content: Vec<u8> =
                     miniz_oxide::inflate::decompress_to_vec(&res_content).unwrap();
@@ -234,11 +238,11 @@ mod tests {
 
             // Get all mails
             {
-                let req: Request =
+                let request: Request =
                     Request::new(Method::Get, Url::parse("http://localhost/mails").unwrap());
-                let mut res: Response = app.respond(req).await.unwrap();
+                let mut response: Response = app.respond(request).await.unwrap();
                 assert_eq!(
-                    res.header(headers::CONTENT_TYPE).unwrap(),
+                    response.header(headers::CONTENT_TYPE).unwrap(),
                     &mime::JSON.to_string()
                 );
                 let mut mails: Vec<MailSummary> = mails
@@ -246,7 +250,7 @@ mod tests {
                     .map(|mail| serde_json::from_value::<MailSummary>(mail.summary()).unwrap())
                     .collect();
                 mails.sort_by(|a, b| a.id.cmp(&b.id));
-                let txt: String = res.body_string().await.unwrap();
+                let txt: String = response.body_string().await.unwrap();
                 let mut txt: Vec<MailSummary> = serde_json::from_str(&txt).unwrap();
                 txt.sort_by(|a, b| a.id.cmp(&b.id));
                 assert_eq!(mails, txt);
@@ -263,13 +267,13 @@ mod tests {
                 let mail: &Mail = &mails[0];
 
                 // Non existent mail id
-                let req: Request =
+                let request: Request =
                     Request::new(Method::Get, Url::parse("http://localhost/mail/1").unwrap());
-                let res: Response = app.respond(req).await.unwrap();
-                assert_eq!(res.status(), StatusCode::NotFound);
+                let response: Response = app.respond(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::NotFound);
 
                 // Valid mail id
-                let req: Request = Request::new(
+                let request: Request = Request::new(
                     Method::Get,
                     Url::parse(&format!(
                         "http://localhost/mail/{}",
@@ -277,9 +281,9 @@ mod tests {
                     ))
                     .unwrap(),
                 );
-                let mut res: Response = app.respond(req).await.unwrap();
+                let mut response: Response = app.respond(request).await.unwrap();
                 assert_eq!(
-                    res.header(headers::CONTENT_TYPE).unwrap(),
+                    response.header(headers::CONTENT_TYPE).unwrap(),
                     &mime::JSON.to_string()
                 );
                 let mail: MailAll = serde_json::from_value(json!({
@@ -288,7 +292,8 @@ mod tests {
                     "data": mail.get_text().unwrap().clone(),
                 }))
                 .unwrap();
-                let txt: MailAll = serde_json::from_str(&res.body_string().await.unwrap()).unwrap();
+                let txt: MailAll =
+                    serde_json::from_str(&response.body_string().await.unwrap()).unwrap();
                 assert_eq!(mail, txt);
             }
         });
