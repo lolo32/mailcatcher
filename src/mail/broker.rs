@@ -144,9 +144,9 @@ This is a test mailing";
                     let (s, mut r): crate::Channel<Mail> = channel::unbounded();
 
                     sender.send(MailEvt::GetAll(s)).await.unwrap();
-                    let mut nb: usize = 0;
+                    let mut nb_retrieved: usize = 0;
                     while let Some(received_mail) = r.next().await {
-                        nb += 1;
+                        nb_retrieved += 1;
                         // result is not added ordered, so check with both added id
                         assert!(
                             received_mail.get_id() == mail1.get_id()
@@ -155,7 +155,7 @@ This is a test mailing";
                         );
                     }
                     // 2 mails added, so must found 2 too...
-                    assert_eq!(nb, 3);
+                    assert_eq!(nb_retrieved, 3);
 
                     // -----------------------
                     // Test removing 1 mail
@@ -169,8 +169,8 @@ This is a test mailing";
                         .await
                         .unwrap();
                     // Read unknown id result
-                    let received: Option<Ulid> = r.next().await.unwrap();
-                    assert!(received.is_none());
+                    let received_none: Option<Ulid> = r.next().await.unwrap();
+                    assert!(received_none.is_none());
                     // 0 mails added, so must found 0 too...
 
                     // ... for known id
@@ -179,8 +179,8 @@ This is a test mailing";
                         .await
                         .unwrap();
                     // Read known id result
-                    let received: Option<Ulid> = r.next().await.unwrap();
-                    assert_eq!(received.unwrap(), mail1.get_id());
+                    let received_id: Option<Ulid> = r.next().await.unwrap();
+                    assert_eq!(received_id.unwrap(), mail1.get_id());
 
                     // -----------------------
                     // Test removing all mails from tha pool
@@ -190,9 +190,9 @@ This is a test mailing";
 
                     // ... ask to remove all mails
                     sender.send(MailEvt::RemoveAll(s)).await.unwrap();
-                    let mut nb: usize = 0;
+                    let mut nb_removed: usize = 0;
                     while let Some(received_mail) = r.next().await {
-                        nb += 1;
+                        nb_removed += 1;
                         assert!(
                             received_mail == mail1.get_id()
                                 || received_mail == mail2.get_id()
@@ -200,7 +200,7 @@ This is a test mailing";
                         );
                     }
                     // 2 mails added, so must found 2 too...
-                    assert_eq!(nb, 2);
+                    assert_eq!(nb_removed, 2);
 
                     Ok(())
                 })

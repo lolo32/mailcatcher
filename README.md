@@ -3,6 +3,7 @@
 ![CI](https://github.com/lolo32/mailcatcher/workflows/Ci/badge.svg)
 ![Security audit](https://github.com/lolo32/mailcatcher/workflows/Security%20audit/badge.svg)
 [![codecov](https://codecov.io/gh/lolo32/mailcatcher/branch/main/graph/badge.svg?token=DH3JmaeWaZ)](https://codecov.io/gh/lolo32/mailcatcher)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ## What can I do, what's that?
 

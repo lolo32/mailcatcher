@@ -419,6 +419,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_smtp() {
         async fn async_test() -> crate::Result<()> {
             const MY_NAME: &str = "UnitTest";
