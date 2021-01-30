@@ -1,6 +1,7 @@
+use std::ops::Add;
+
 use async_std::channel;
 use futures::StreamExt;
-use log::{error, info, trace};
 use tide::{Request, Response, Server, StatusCode};
 use ulid::Ulid;
 
@@ -9,6 +10,7 @@ use crate::{
     mail::broker::MailEvt,
 };
 
+/// Append the routes for removing mails with prefix: `/remove`
 pub fn append_route(app: &mut Server<State<SseEvt>>) {
     // Remove all mails
     let _route_remove_all = app
@@ -18,10 +20,10 @@ pub fn append_route(app: &mut Server<State<SseEvt>>) {
             req.state().mail_broker.send(MailEvt::RemoveAll(s)).await?;
             let mut nb: usize = 0;
             while let Some(id) = r.next().await {
-                nb += 1;
+                nb = nb.add(1);
                 match req.state().sse_stream.send(&SseEvt::DelMail(id)).await {
-                    Ok(()) => trace!("Success notification of removal: {}", id.to_string()),
-                    Err(e) => error!("Notification of removal {}: {:?}", id.to_string(), e),
+                    Ok(()) => log::trace!("Success notification of removal: {}", id.to_string()),
+                    Err(e) => log::error!("Notification of removal {}: {:?}", id.to_string(), e),
                 }
             }
             Ok(format!("OK: {}", nb))
@@ -36,7 +38,7 @@ pub fn append_route(app: &mut Server<State<SseEvt>>) {
                 req.state().mail_broker.send(MailEvt::Remove(s, id)).await?;
                 let mail: Option<Ulid> = r.next().await.expect("received mail id");
                 if mail.is_some() {
-                    info!("mail removed {:?}", mail);
+                    log::info!("mail removed {:?}", mail);
                     req.state().sse_stream.send(&SseEvt::DelMail(id)).await?;
                     return Ok("OK: 1".into());
                 }

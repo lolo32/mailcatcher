@@ -10,7 +10,6 @@ use futures::{
     stream::FuturesUnordered,
     AsyncRead, AsyncWrite, {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
-use log::{error, info, trace};
 
 use crate::{
     mail::Mail,
@@ -18,12 +17,18 @@ use crate::{
     utils::{spawn_task_and_swallow_log_errors, ConnectionInfo},
 };
 
+/// SMTP command enum
 mod command;
 
+/// SMTP return message: All is alright, please continue
 const MSG_250_OK: &[u8] = b"250 OK\r\n";
+/// SMTP return message: DATA accepted, starting mail content
 const MSG_354_NEXT_DATA: &[u8] = b"354 Start mail input; end with <CRLF>.<CRLF>\r\n";
+/// SMTP return message: Line length is too long
 const MSG_500_LENGTH_TOO_LONG: &[u8] = b"500 Line too long.\r\n";
+/// SMTP return message: Command not understood
 const MSG_502_NOT_IMPLEMENTED: &[u8] = b"502 Command not implemented\r\n";
+/// SMTP return message: Command not allowed here
 const MSG_503_BAD_SEQUENCE: &[u8] = b"503 Bad sequence of commands\r\n";
 
 /// Serve SMTP
@@ -83,26 +88,28 @@ async fn accept_loop(
 ) -> crate::Result<()> {
     // Listen to incoming connection
     let mut incoming: Incoming = listener.incoming();
-    info!("SMTP listening on {:?}", listener.local_addr()?);
+    log::info!("SMTP listening on {:?}", listener.local_addr()?);
 
     // For each new connection
     loop {
         if let Some(stream) = incoming.next().await {
+            // Retrieve the Stream
             let stream = stream?;
+            // New connection for information
             let conn: ConnectionInfo =
                 ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
-            info!("Accepting new connection from: {}", stream.peer_addr()?);
+            log::info!("Accepting new connection from: {}", stream.peer_addr()?);
             // Spawn local processing
             let _smtp_processing_task = spawn_task_and_swallow_log_errors(
                 format!("Task: TCP transmission {}", conn),
                 connection_loop(
                     stream,
                     conn,
-                    server_name.to_string(),
+                    server_name.to_owned(),
                     use_starttls,
                     mails_broker.clone(),
                 ),
-            );
+            )?;
         }
     }
 }
@@ -134,7 +141,7 @@ where
         let line: String = line?;
         // Identify the action
         let action: Command = smtp.process_line(Cow::Owned(line));
-        trace!("{:?}", action);
+        log::trace!("{:?}", action);
         // Process the action
         let mail: Option<Mail> = smtp.process_command(&action).await?;
         // If a mail has been emitted, send it to the HTTP side
@@ -147,24 +154,34 @@ where
         }
     }
 
-    info!(">>> {}", conn);
+    log::info!(">>> {}", conn);
 
     Ok(())
 }
 
+/// SMTP transaction internal state
 struct Smtp<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> {
+    /// Server name identification (=my name)
     server_name: String,
+    /// Stream where to write responses
     write_stream: S,
+    /// Use TLS for connection support
     use_starttls: bool,
+    /// Reported remote client name
     remote_name: Option<String>,
+    /// Expeditor mail address
     addr_from: Option<String>,
+    /// Recipient(s) address
     addr_to: Vec<String>,
+    /// Are we in data reception or not
     receive_data: bool,
+    /// Received data
     data: Cow<'a, str>,
 }
 
 #[allow(unused_lifetimes)]
 impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
+    /// New connection
     pub fn new(stream: &S, server_name: String, use_starttls: bool) -> Smtp<'a, S> {
         Self {
             server_name,
@@ -193,8 +210,9 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
     }
 
     /// process client input, and return the command used
+    #[allow(clippy::indexing_slicing)]
     pub fn process_line(&self, command_line: Cow<'a, str>) -> Command<'a> {
-        // debug!("texte: {}", line);
+        // log::debug!("texte: {}", line);
         if !self.receive_data {
             match command_line.to_lowercase().as_str() {
                 "data" => Command::DataStart,
@@ -211,11 +229,11 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
                 }
                 // From
                 line if line.len() > 10 && &line[..10] == "mail from:" => {
-                    Command::From(command_line[10..].trim_start().to_string())
+                    Command::From(command_line[10..].trim_start().to_owned())
                 }
                 // To
                 line if line.len() > 8 && &line[..8] == "rcpt to:" => {
-                    Command::Recipient(command_line[8..].trim_start().to_string())
+                    Command::Recipient(command_line[8..].trim_start().to_owned())
                 }
                 // Noop
                 line if (line.len() == 4 && line == "noop")
@@ -243,8 +261,9 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
     }
 
     /// Store a new line, removing any one dot at the beginning of a line
+    #[allow(clippy::indexing_slicing)]
     fn push_data(&mut self, line: &str) {
-        let idx: usize = if !line.is_empty() && &line[0..1] == "." {
+        let start_idx: usize = if !line.is_empty() && &line[0..1] == "." {
             1
         } else {
             0
@@ -252,12 +271,12 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
         if !self.data.is_empty() {
             self.data.to_mut().push_str("\r\n");
         }
-        self.data.to_mut().push_str(&line[idx..]);
+        self.data.to_mut().push_str(&line[start_idx..]);
     }
 
     /// return if the command is valid at this time of the speak
     pub fn is_valid(&self, action: &Command) -> bool {
-        match action {
+        match *action {
             // Must be come first, so anything must be empty
             Command::Hello(_) | Command::Ehllo(_) => {
                 self.addr_from.is_none() && self.addr_to.is_empty()
@@ -284,6 +303,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
     /// Process command and value
     pub async fn process_command(&mut self, command: &Command<'a>) -> crate::Result<Option<Mail>> {
+        #[allow(clippy::pattern_type_mismatch, clippy::unimplemented)]
         match command {
             // Check if command is valid at this time of speaking
             action if !self.is_valid(action) => {
@@ -320,7 +340,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             // Store the expeditor address
             Command::From(from) => {
                 if from.len() > 64 {
-                    error!("Username too long.");
+                    log::error!("Username too long.");
                     self.write(MSG_500_LENGTH_TOO_LONG).await?
                 } else {
                     self.addr_from = Some(from.clone());
@@ -343,7 +363,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             // Receive data, store it if line length is valid
             Command::Data(line) => {
                 if line.len() > 1000 {
-                    error!(
+                    log::error!(
                         "Data line length ({}) cannot exceed 998 characters.",
                         line.len()
                     );
@@ -354,10 +374,10 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             }
             // A line containing only "." specified, so mail is complete
             Command::DataEnd => {
-                trace!("{}", self.data);
+                log::trace!("{}", self.data);
                 // Instantiate a new mail
                 let mail: Mail = Mail::new(
-                    self.addr_from.as_ref().expect("sender address"),
+                    self.addr_from.as_ref().ok_or("No sender mail address")?,
                     &self.addr_to,
                     &self.data,
                 );
@@ -384,7 +404,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             }
             // An error message, because the command is not supported
             Command::Error(err) => {
-                error!("Unsupported command: \"{}\"", err);
+                log::error!("Unsupported command: \"{}\"", err);
 
                 self.write(MSG_502_NOT_IMPLEMENTED).await?;
                 Ok(None)
@@ -419,13 +439,13 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
     fn test_smtp() {
         async fn async_test() -> crate::Result<()> {
             const MY_NAME: &str = "UnitTest";
 
             let tcp: TcpListener = TcpListener::bind("localhost:0").await?;
-            let port: u16 = tcp.local_addr().unwrap().port();
+            let port: u16 = tcp.local_addr().expect("socket address").port();
             drop(tcp);
 
             let (sender, mut receiver): crate::Channel<Mail> = bounded(1);
@@ -436,53 +456,53 @@ mod tests {
                 let (mut lines, mut stream) = connect_to(port).await?;
 
                 // Check if greeting is sent by the server
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
                 assert_eq!(line[..(4 + MY_NAME.len())], format!("220 {}", MY_NAME));
 
                 // --------------------------
                 // Nothing is accepted but Helo, Ehlo, Reset or Noop
                 stream.write_all(b"INVALID\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "502 Command not implemented".to_string());
+                assert_eq!(line, "502 Command not implemented".to_owned());
 
                 stream
                     .write_all(b"MAIL FROM:<test@example.org>\r\n")
                     .await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "503 Bad sequence of commands".to_string());
+                assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
                 stream.write_all(b"RCPT TO:<test@example.org>\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "503 Bad sequence of commands".to_string());
+                assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
                 stream.write_all(b"DATA\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "503 Bad sequence of commands".to_string());
+                assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
                 stream.write_all(b"NOOP\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "250 OK".to_string());
+                assert_eq!(line, "250 OK".to_owned());
 
                 stream
                     .write_all(b"NOOP ignore the end of the line\r\n")
                     .await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "250 OK".to_string());
+                assert_eq!(line, "250 OK".to_owned());
 
                 stream.write_all(b"rSET\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "250 OK".to_string());
+                assert_eq!(line, "250 OK".to_owned());
 
                 stream.write_all(b"HELO client\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
                 assert_eq!(line, format!("250 {}", MY_NAME));
 
@@ -494,12 +514,12 @@ mod tests {
                 let (mut lines, mut stream) = connect_to(port).await?;
 
                 // Greeting
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
                 assert_eq!(line, format!("220 {} ESMTP", MY_NAME));
 
                 stream.write_all(b"eHLO client\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
                 assert_eq!(line, format!("250 {}", MY_NAME));
 
@@ -508,26 +528,26 @@ mod tests {
                 stream
                     .write_all(b"mAiL frOM:<from@example.org>\r\n")
                     .await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "250 OK".to_string());
+                assert_eq!(line, "250 OK".to_owned());
 
                 // --------------------------
                 // To
                 stream.write_all(b"RCpT tO:<to@example.net>\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "250 OK".to_string());
+                assert_eq!(line, "250 OK".to_owned());
 
                 stream.write_all(b"rcpt TO:<to@example.org>\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
-                assert_eq!(line, "250 OK".to_string());
+                assert_eq!(line, "250 OK".to_owned());
 
                 // --------------------------
                 // Begin data
                 stream.write_all(b"DATA\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
                 assert_eq!(&line[..4], "354 ");
 
@@ -544,25 +564,25 @@ Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
 .\r\n",
                     )
                     .await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
                 assert_eq!(line, "250 OK");
 
                 // --------------------------
                 // Check the received mail
-                let mail: Mail = receiver.next().await.unwrap();
+                let mail: Mail = receiver.next().await.expect("next line");
 
                 // --------------------------
                 // Close connection
                 stream.write_all(b"quit\r\n").await?;
-                let line = lines.next().await.unwrap();
+                let line = lines.next().await.expect("next line");
                 let line: String = line?;
                 assert_eq!(
                     line[..(4 + MY_NAME.len())].to_string(),
                     format!("221 {}", MY_NAME)
                 );
 
-                let raw = mail.get_data(&Type::Raw).unwrap();
+                let raw = mail.get_data(&Type::Raw).expect("next line");
                 assert_eq!(
                     raw,
                     "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;\r\n\
@@ -584,8 +604,8 @@ This is the content of this mail... but it says nothing now.\r\n"
             async_test()
                 .timeout(Duration::from_millis(5000))
                 .await
-                .unwrap()
-                .unwrap()
+                .expect("no timeout")
+                .expect("promise result")
         })
     }
 }

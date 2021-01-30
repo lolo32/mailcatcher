@@ -1,4 +1,3 @@
-use log::debug;
 use tide::{Request, Server};
 
 use crate::{
@@ -6,7 +5,7 @@ use crate::{
     mail::Mail,
 };
 
-#[allow(clippy::shadow_unrelated)]
+/// Append the routes for creating fake emails, with prefix: `/fake`
 pub fn append_route(app: &mut Server<State<SseEvt>>) {
     // Generate one fake mail
     let _route_fake = app.at("/fake").get(faking);
@@ -14,6 +13,7 @@ pub fn append_route(app: &mut Server<State<SseEvt>>) {
     let _route_fake_nb = app.at("/fake/:nb").get(faking);
 }
 
+/// Generate `n` fake email
 async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
     let nb: usize = req
         .param("nb")
@@ -24,8 +24,8 @@ async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
         let mail: Mail = Mail::fake();
 
         match req.state().new_fake_mail.send(mail).await {
-            Ok(()) => debug!("New faked mail sent!"),
-            Err(e) => debug!("New mail error: {:?}", e),
+            Ok(()) => log::debug!("New faked mail sent!"),
+            Err(e) => log::debug!("New mail error: {:?}", e),
         }
     }
 

@@ -1,6 +1,5 @@
 use async_std::channel;
 use futures::StreamExt;
-use log::trace;
 use tide::{prelude::json, Body, Request, Response, Server, StatusCode};
 use ulid::Ulid;
 
@@ -9,6 +8,7 @@ use crate::{
     mail::{broker::MailEvt, HeaderRepresentation, Mail, Type},
 };
 
+/// Append the routes to retrieve the mail list or mail details: `/mails` or `/mail/*`
 pub fn append_route<T>(app: &mut Server<State<T>>)
 where
     T: Send + Clone + 'static,
@@ -49,7 +49,7 @@ where
                 |mail| {
                     Ok(Body::from_string(match mail.get_text() {
                         Some(text) => text.to_string(),
-                        None => "".to_string(),
+                        None => "".to_owned(),
                     })
                     .into())
                 },
@@ -104,10 +104,10 @@ where
             .await?;
         // Get mails pool
         let mail: Option<Mail> = r.next().await.expect("received mail");
-        trace!("mail with id {} found {:?}", id, mail);
+        log::trace!("mail with id {} found {:?}", id, mail);
         mail
     } else {
-        trace!("mail with id invalid {}", id);
+        log::trace!("mail with id invalid {}", id);
         None
     })
 }
