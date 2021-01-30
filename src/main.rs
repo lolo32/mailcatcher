@@ -13,6 +13,54 @@
     clippy::pedantic,
     clippy::nursery
 )]
+// Clippy rules in the `Restriction lints`
+#![deny(
+    clippy::as_conversions,
+    clippy::clone_on_ref_ptr,
+    clippy::create_dir,
+    clippy::dbg_macro,
+    clippy::decimal_literal_representation,
+    clippy::else_if_without_else,
+    clippy::exit,
+    clippy::filetype_is_file,
+    clippy::float_arithmetic,
+    clippy::float_cmp_const,
+    clippy::get_unwrap,
+    clippy::indexing_slicing,
+    clippy::inline_asm_x86_att_syntax,
+    clippy::inline_asm_x86_intel_syntax,
+    clippy::integer_arithmetic,
+    clippy::integer_division,
+    clippy::let_underscore_must_use,
+    clippy::lossy_float_literal,
+    clippy::map_err_ignore,
+    clippy::mem_forget,
+    clippy::missing_docs_in_private_items,
+    clippy::missing_inline_in_public_items,
+    clippy::modulo_arithmetic,
+    clippy::multiple_inherent_impl,
+    clippy::panic,
+    clippy::panic_in_result_fn,
+    clippy::pattern_type_mismatch,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::rc_buffer,
+    clippy::rest_pat_in_fully_bound_structs,
+    clippy::shadow_reuse,
+    clippy::shadow_same,
+    clippy::str_to_string,
+    clippy::string_add,
+    clippy::string_to_string,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::unneeded_field_pattern,
+    clippy::unwrap_in_result,
+    clippy::unwrap_used,
+    clippy::use_debug,
+    clippy::verbose_file_reads,
+    clippy::wildcard_enum_match_arm,
+    clippy::wrong_pub_self_convention
+)]
 
 //! This software can be used to have a SMTP mail server on any computer that
 //! accept any mail and display them using any web browser.
@@ -37,17 +85,24 @@ use crate::{
     utils::spawn_task_and_swallow_log_errors,
 };
 
+/// Decode encoded string
 mod encoding;
+/// Display mail content with HTTP content
 mod http;
+/// Mail representation/gestion
 mod mail;
+/// SMTP part
 mod smtp;
+/// Deals with async tasks
 mod utils;
 
 /// Result type commonly used in this crate
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// Type alias for stream channel
 type Channel<T> = (Sender<T>, Receiver<T>);
 
+/// Command line arguments
 #[derive(Debug, StructOpt)]
 #[structopt(about, author)]
 struct Opt {
@@ -85,6 +140,7 @@ fn main() -> Result<()> {
     task::block_on(main_fut(opt))
 }
 
+/// async main
 async fn main_fut(opt: Opt) -> Result<()> {
     log::info!(
         "Starting MailCatcher on port smtp({}) and http({})",
@@ -115,17 +171,14 @@ async fn main_fut(opt: Opt) -> Result<()> {
                     // Notify javascript side by SSE
                     match tx_http_new_mail.send(MailEvt::NewMail(mail.clone())).await {
                         Ok(()) => {
-                            tx_new_mail
-                                .send(mail)
-                                .await
-                                .expect("sending new mail notification");
+                            tx_new_mail.send(mail).await?;
                             log::trace!("Mail stored successfully")
                         }
                         Err(e) => log::error!("Mail stored error: {:?}", e),
                     }
                 }
             }
-        });
+        })?;
 
     // Starting SMTP side
     let s = smtp::serve(

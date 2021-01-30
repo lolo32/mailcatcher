@@ -8,6 +8,7 @@ use crate::{
     mail::{broker::MailEvt, HeaderRepresentation, Mail, Type},
 };
 
+/// Append the routes to retrieve the mail list or mail details: `/mails` or `/mail/*`
 pub fn append_route<T>(app: &mut Server<State<T>>)
 where
     T: Send + Clone + 'static,
@@ -48,7 +49,7 @@ where
                 |mail| {
                     Ok(Body::from_string(match mail.get_text() {
                         Some(text) => text.to_string(),
-                        None => "".to_string(),
+                        None => "".to_owned(),
                     })
                     .into())
                 },

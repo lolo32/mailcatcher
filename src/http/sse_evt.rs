@@ -9,15 +9,20 @@ use crate::mail::Mail;
 /// Events that can be sent to SSE
 #[derive(Clone, Debug)]
 pub enum SseEvt {
+    /// A new mail has arrived
     NewMail(Mail),
+    /// A mail was deleted
     DelMail(Ulid),
+    /// Ping to test connection
     Ping,
 }
 
 /// Data that can be sent to client browsers with SSE
 #[derive(Debug)]
 pub struct SseData<'a> {
+    /// SSE event name
     pub name: &'a str,
+    /// SSE event data content
     pub data: Cow<'a, str>,
 }
 
