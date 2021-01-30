@@ -25,7 +25,6 @@ use async_std::{
     task,
 };
 use futures::StreamExt;
-use log::{debug, error, info, trace};
 use structopt::StructOpt;
 use tide::Server;
 
@@ -80,16 +79,17 @@ fn main() -> Result<()> {
     env_logger::init();
 
     let opt: Opt = Opt::from_args();
-    debug!("Options: {:?}", opt);
+    log::debug!("Options: {:?}", opt);
 
     // Start the program, that is async, so block waiting it's end
     task::block_on(main_fut(opt))
 }
 
 async fn main_fut(opt: Opt) -> Result<()> {
-    info!(
+    log::info!(
         "Starting MailCatcher on port smtp({}) and http({})",
-        opt.smtp, opt.http
+        opt.smtp,
+        opt.http
     );
 
     // Channels used to notify a new mail arrived in SMTP side to HTTP side
@@ -111,7 +111,7 @@ async fn main_fut(opt: Opt) -> Result<()> {
             loop {
                 // To do on each received new mail
                 if let Some(mail) = rx_mail_from_smtp.next().await {
-                    info!("Received new mail: {:?}", mail);
+                    log::info!("Received new mail: {:?}", mail);
                     // Notify javascript side by SSE
                     match tx_http_new_mail.send(MailEvt::NewMail(mail.clone())).await {
                         Ok(()) => {
@@ -119,9 +119,9 @@ async fn main_fut(opt: Opt) -> Result<()> {
                                 .send(mail)
                                 .await
                                 .expect("sending new mail notification");
-                            trace!("Mail stored successfully")
+                            log::trace!("Mail stored successfully")
                         }
-                        Err(e) => error!("Mail stored error: {:?}", e),
+                        Err(e) => log::error!("Mail stored error: {:?}", e),
                     }
                 }
             }

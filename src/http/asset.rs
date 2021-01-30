@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-use log::debug;
 use mailcatcher_derive::AssetEmbed;
 use tide::{
     http::{headers, Mime, Request},
@@ -35,7 +34,7 @@ pub fn send(req: &Request, name: &str, mime: Mime) -> Response {
             miniz_oxide::inflate::decompress_to_vec(&content[..]).expect("deflate invalid");
         Cow::Owned(uncompressed)
     };
-    debug!("content_len: {:?}", content.len());
+    log::debug!("content_len: {:?}", content.len());
 
     // Build the Response
     let response: ResponseBuilder = Response::builder(StatusCode::Ok)
@@ -45,7 +44,7 @@ pub fn send(req: &Request, name: &str, mime: Mime) -> Response {
         .header(headers::CONTENT_LENGTH, content.len().to_string());
     // If compression enabled, add the header to response
     let response: ResponseBuilder = if compressed {
-        debug! {"using deflate compression output"};
+        log::debug! {"using deflate compression output"};
         response.header(headers::CONTENT_ENCODING, "deflate")
     } else {
         response

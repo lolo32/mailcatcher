@@ -1,4 +1,3 @@
-use log::debug;
 use tide::{Request, Server};
 
 use crate::{
@@ -24,8 +23,8 @@ async fn faking(req: Request<State<SseEvt>>) -> tide::Result<String> {
         let mail: Mail = Mail::fake();
 
         match req.state().new_fake_mail.send(mail).await {
-            Ok(()) => debug!("New faked mail sent!"),
-            Err(e) => debug!("New mail error: {:?}", e),
+            Ok(()) => log::debug!("New faked mail sent!"),
+            Err(e) => log::debug!("New mail error: {:?}", e),
         }
     }
 

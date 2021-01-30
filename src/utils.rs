@@ -5,7 +5,6 @@ use std::{
 };
 
 use async_std::{net::SocketAddr, task};
-use log::{error, info};
 
 /// Spawn a new async task, waiting it completion,
 /// it display it's status at the end: Success or Error
@@ -27,11 +26,11 @@ where
 {
     match fut.await {
         Ok(r) => {
-            info!("{} completes successfully.", task_name);
+            log::info!("{} completes successfully.", task_name);
             Some(r)
         }
         Err(e) => {
-            error!("Error in {}: {}", task_name, e);
+            log::error!("Error in {}: {}", task_name, e);
             None
         }
     }

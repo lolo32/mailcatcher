@@ -10,7 +10,6 @@ use futures::{
     stream::FuturesUnordered,
     AsyncRead, AsyncWrite, {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
-use log::{error, info, trace};
 
 use crate::{
     mail::Mail,
@@ -83,7 +82,7 @@ async fn accept_loop(
 ) -> crate::Result<()> {
     // Listen to incoming connection
     let mut incoming: Incoming = listener.incoming();
-    info!("SMTP listening on {:?}", listener.local_addr()?);
+    log::info!("SMTP listening on {:?}", listener.local_addr()?);
 
     // For each new connection
     loop {
@@ -91,7 +90,7 @@ async fn accept_loop(
             let stream = stream?;
             let conn: ConnectionInfo =
                 ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
-            info!("Accepting new connection from: {}", stream.peer_addr()?);
+            log::info!("Accepting new connection from: {}", stream.peer_addr()?);
             // Spawn local processing
             let _smtp_processing_task = spawn_task_and_swallow_log_errors(
                 format!("Task: TCP transmission {}", conn),
@@ -134,7 +133,7 @@ where
         let line: String = line?;
         // Identify the action
         let action: Command = smtp.process_line(Cow::Owned(line));
-        trace!("{:?}", action);
+        log::trace!("{:?}", action);
         // Process the action
         let mail: Option<Mail> = smtp.process_command(&action).await?;
         // If a mail has been emitted, send it to the HTTP side
@@ -147,7 +146,7 @@ where
         }
     }
 
-    info!(">>> {}", conn);
+    log::info!(">>> {}", conn);
 
     Ok(())
 }
@@ -194,7 +193,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
     /// process client input, and return the command used
     pub fn process_line(&self, command_line: Cow<'a, str>) -> Command<'a> {
-        // debug!("texte: {}", line);
+        // log::debug!("texte: {}", line);
         if !self.receive_data {
             match command_line.to_lowercase().as_str() {
                 "data" => Command::DataStart,
@@ -320,7 +319,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             // Store the expeditor address
             Command::From(from) => {
                 if from.len() > 64 {
-                    error!("Username too long.");
+                    log::error!("Username too long.");
                     self.write(MSG_500_LENGTH_TOO_LONG).await?
                 } else {
                     self.addr_from = Some(from.clone());
@@ -343,7 +342,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             // Receive data, store it if line length is valid
             Command::Data(line) => {
                 if line.len() > 1000 {
-                    error!(
+                    log::error!(
                         "Data line length ({}) cannot exceed 998 characters.",
                         line.len()
                     );
@@ -354,7 +353,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             }
             // A line containing only "." specified, so mail is complete
             Command::DataEnd => {
-                trace!("{}", self.data);
+                log::trace!("{}", self.data);
                 // Instantiate a new mail
                 let mail: Mail = Mail::new(
                     self.addr_from.as_ref().expect("sender address"),
@@ -384,7 +383,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
             }
             // An error message, because the command is not supported
             Command::Error(err) => {
-                error!("Unsupported command: \"{}\"", err);
+                log::error!("Unsupported command: \"{}\"", err);
 
                 self.write(MSG_502_NOT_IMPLEMENTED).await?;
                 Ok(None)

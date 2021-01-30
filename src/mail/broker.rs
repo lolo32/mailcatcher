@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use async_std::channel::{Receiver, Sender};
 use futures::StreamExt;
-use log::trace;
 use ulid::Ulid;
 
 use crate::{mail::Mail, utils::spawn_task_and_swallow_log_errors};
@@ -29,7 +28,7 @@ pub async fn process(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
         spawn_task_and_swallow_log_errors("Mail broker".to_string(), async move {
             loop {
                 if let Some(evt) = receiver.next().await {
-                    trace!("processing MailEvt: {:?}", evt);
+                    log::trace!("processing MailEvt: {:?}", evt);
                     match evt {
                         // A new mail, add it to the list
                         MailEvt::NewMail(mail) => {

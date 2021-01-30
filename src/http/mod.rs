@@ -10,7 +10,6 @@ use futures::{
     channel::mpsc::{UnboundedReceiver, UnboundedSender},
     StreamExt,
 };
-use log::{error, info, trace};
 use tide::{prelude::Listener, Server};
 
 use crate::{
@@ -53,11 +52,11 @@ pub async fn init(params: Params) -> crate::Result<Server<State<SseEvt>>> {
             loop {
                 // To do on each received new mail
                 if let Some(mail) = rx_mails.next().await {
-                    info!(">>> Received new mail: {:?}", mail);
+                    log::info!(">>> Received new mail: {:?}", mail);
                     // Append the mail to the list
                     match sse_stream_new_mail.send(&SseEvt::NewMail(mail)).await {
-                        Ok(()) => trace!(">>> New mail notification sent to channel"),
-                        Err(e) => error!(">>> Err new mail notification to channel: {:?}", e),
+                        Ok(()) => log::trace!(">>> New mail notification sent to channel"),
+                        Err(e) => log::error!(">>> Err new mail notification to channel: {:?}", e),
                     }
                 }
             }
@@ -68,7 +67,7 @@ pub async fn init(params: Params) -> crate::Result<Server<State<SseEvt>>> {
     let _noop_task =
         spawn_task_and_swallow_log_errors("Task: Noop stream emptier".into(), async move {
             loop {
-                trace!("Consume SSE notification stream");
+                log::trace!("Consume SSE notification stream");
                 // Do nothing, it's just to empty the stream
                 let _sse_evt = sse_noop_stream.next().await;
             }
@@ -79,7 +78,7 @@ pub async fn init(params: Params) -> crate::Result<Server<State<SseEvt>>> {
     let _sse_ping_task =
         spawn_task_and_swallow_log_errors("Task: Ping SSE sender".into(), async move {
             loop {
-                trace!("Sending ping");
+                log::trace!("Sending ping");
                 // Do nothing, it's just to empty the stream
                 sse_tx_ping_stream
                     .send(&SseEvt::Ping)
@@ -114,7 +113,7 @@ where
         .await?;
     // Display binding ports
     for info in &listener.info() {
-        info!("HTTP listening on {}", info);
+        log::info!("HTTP listening on {}", info);
     }
     // Accept connections
     listener.accept().await?;

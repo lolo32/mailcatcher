@@ -8,7 +8,6 @@ use fake::{
     },
     Fake,
 };
-use log::trace;
 use serde_json::Value;
 use textwrap::wrap;
 use tide::prelude::json;
@@ -279,7 +278,7 @@ impl Mail {
             FreeEmailProvider().fake::<String>(),
             body,
         );
-        trace!("Faking new mail:\n{}", mail_full);
+        log::trace!("Faking new mail:\n{}", mail_full);
 
         Self::new(
             &format!("{}<{}>", from_name, from),

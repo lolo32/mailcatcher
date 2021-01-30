@@ -1,6 +1,5 @@
 use async_std::channel;
 use futures::StreamExt;
-use log::trace;
 use tide::{prelude::json, Body, Request, Response, Server, StatusCode};
 use ulid::Ulid;
 
@@ -104,10 +103,10 @@ where
             .await?;
         // Get mails pool
         let mail: Option<Mail> = r.next().await.expect("received mail");
-        trace!("mail with id {} found {:?}", id, mail);
+        log::trace!("mail with id {} found {:?}", id, mail);
         mail
     } else {
-        trace!("mail with id invalid {}", id);
+        log::trace!("mail with id invalid {}", id);
         None
     })
 }
