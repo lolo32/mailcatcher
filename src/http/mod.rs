@@ -185,10 +185,10 @@ mod tests {
             let (tx_mail_broker, rx_mail_broker): crate::Channel<MailEvt> = channel::unbounded();
             let (_tx_new_mail, rx_new_mail): crate::Channel<Mail> = channel::bounded(1);
             #[cfg(feature = "faking")]
-            let (tx_mail_from_smtp, _rx_mail_from_smtp): (
+            let (tx_mail_from_faking, mut rx_mail_from_faking): (
                 Sender<Mail>,
                 Receiver<Mail>,
-            ) = channel::bounded(1);
+            ) = channel::unbounded();
 
             // Provide some mails
             let mut mails: Vec<Mail> = Vec::new();
@@ -210,7 +210,7 @@ mod tests {
                 mail_broker: tx_mail_broker,
                 rx_mails: rx_new_mail,
                 #[cfg(feature = "faking")]
-                tx_new_mail: tx_mail_from_smtp,
+                tx_new_mail: tx_mail_from_faking,
             };
             let app: Server<State<SseEvt>> = init(params).await.expect("tide initialised");
 
@@ -363,6 +363,61 @@ mod tests {
                     serde_json::from_str(&response.body_string().await.expect("response body"))
                         .expect("JSON to MailAll");
                 assert_eq!(mail, txt);
+            }
+
+            // Faking new mail
+            #[cfg(feature = "faking")]
+            {
+                // Without number of mail
+                let request: Request = Request::new(
+                    Method::Get,
+                    Url::parse("http://localhost/fake").expect("url parse"),
+                );
+                let mut response: Response = app.respond(request).await.expect("received response");
+
+                let body = response.body_string().await.expect("body string");
+                assert_eq!(body, "OK: 1");
+
+                let fake_mail_1 = rx_mail_from_faking.next().await.expect("mail");
+                assert!(fake_mail_1
+                    .get_text()
+                    .expect("text")
+                    .starts_with("Lorem ipsum dolor sit "));
+
+                // With 1 mail
+                let request: Request = Request::new(
+                    Method::Get,
+                    Url::parse("http://localhost/fake/1").expect("url parse"),
+                );
+                let mut response: Response = app.respond(request).await.expect("received response");
+
+                let fake_mail_2 = rx_mail_from_faking.next().await.expect("mail");
+                assert!(fake_mail_2
+                    .get_text()
+                    .expect("text")
+                    .starts_with("Lorem ipsum dolor sit "));
+
+                let body = response.body_string().await.expect("body string");
+                assert_eq!(body, "OK: 1");
+
+                // With 11 mail
+                let request: Request = Request::new(
+                    Method::Get,
+                    Url::parse("http://localhost/fake/11").expect("url parse"),
+                );
+                let mut response: Response = app.respond(request).await.expect("received response");
+
+                let mut mails = Vec::new();
+                for _ in 0..11 {
+                    mails.push(rx_mail_from_faking.next().await.expect("mail"));
+                }
+                assert_eq!(mails.len(), 11);
+
+                let body = response.body_string().await.expect("body string");
+                assert_eq!(body, "OK: 11");
+
+                // No more waiting in the fake stream
+                assert!(rx_mail_from_faking.is_empty());
             }
         });
     }
