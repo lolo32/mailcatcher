@@ -3,15 +3,23 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use std::{env, fs, path::Path, time::SystemTime};
+use std::{env, path::Path};
 
-use chrono::{DateTime, Utc};
-use miniz_oxide::deflate::compress_to_vec;
-use proc_macro2::Span;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, Ident, Lit, LitByteStr, Meta};
+use syn::{Data, DeriveInput, Fields, Ident, Lit, Meta};
 
+// Release build
+//
+// Include files contents inside the generated binary,
+// compressed with deflate
+#[cfg(not(debug_assertions))]
 fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream {
+    use chrono::{DateTime, Utc};
+    use miniz_oxide::deflate::compress_to_vec;
+    use proc_macro2::Span;
+    use std::{fs, time::SystemTime};
+    use syn::LitByteStr;
+
     let mut match_values = Vec::new();
     let mut modified_values = Vec::new();
 
@@ -53,71 +61,80 @@ fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream {
             };
             // Convert to desired format
             let modif: DateTime<Utc> = DateTime::from(modif);
-            let modif = modif.format("%a, %d %b %Y %T GMT").to_string();
+            let modif: String = modif.format("%a, %d %b %Y %T GMT").to_string();
             modified_values.push(quote! {
                 #rel_path => {Some(std::borrow::Cow::from(#modif))}
             });
         }
     }
 
-    let q = quote! {
-        // Release build
-        #[cfg(not(debug_assertions))]
-        impl #ident {
-            pub fn get(file_path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
-                match file_path {
-                    #(#match_values)*
-                    _ => None
-                }
-            }
-
-            pub fn modif(file_path: &str) -> Option<std::borrow::Cow<'static, str>> {
-                match file_path {
-                    #(#modified_values)*
-                    _ => None
-                }
-            }
-        }
-
-        // Debug build
-        #[cfg(debug_assertions)]
-        impl #ident {
-            pub fn get(file_path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
-                let file_path = std::path::Path::new(#folder_path).join(file_path);
-                match std::fs::read(file_path) {
-                    Ok(contents) => {
-                        let compressed = miniz_oxide::deflate::compress_to_vec(&contents, 6);
-
-                        Some(std::borrow::Cow::Owned(compressed))
-                    },
-                    Err(_e) => None,
-                }
-            }
-
-            pub fn modif(file_path: &str) -> Option<std::borrow::Cow<'static, str>> {
-                use chrono::{DateTime, Utc};
-
-                let file_path = std::path::Path::new(#folder_path).join(file_path);
-                match std::fs::metadata(file_path) {
-                    Ok(metadata) => {
-                        match metadata.modified() {
-                            Ok(modif) => {
-                                let modif: DateTime<Utc> = DateTime::from(modif);
-                                // Tue, 01 Dec 2020 00:00:00 GMT
-                                let modif = modif.format("%a, %d %b %Y %T GMT").to_string();
-
-                                Some(std::borrow::Cow::from(modif))
-                            }
-                            Err(_e) => None,
-                        }
+    {
+        quote! {
+            impl #ident {
+                pub fn get(file_path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
+                    match file_path {
+                        #(#match_values)*
+                        _ => None
                     }
-                    Err(_e) => None,
+                }
+
+                pub fn modif(file_path: &str) -> Option<std::borrow::Cow<'static, str>> {
+                    match file_path {
+                        #(#modified_values)*
+                        _ => None
+                    }
                 }
             }
         }
-    };
+    }
+    .into()
+}
 
-    q.into()
+// Debug build
+//
+// Read the files contents in the filesystem at each request,
+// content is not stored but reread everytime
+#[cfg(debug_assertions)]
+fn generate_assets(ident: &Ident, folder_path: String) -> TokenStream {
+    {
+        quote! {
+            impl #ident {
+                pub fn get(file_path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
+                    let file_path = std::path::Path::new(#folder_path).join(file_path);
+                    match std::fs::read(file_path) {
+                        Ok(contents) => {
+                            let compressed = miniz_oxide::deflate::compress_to_vec(&contents, 6);
+
+                            Some(std::borrow::Cow::Owned(compressed))
+                        },
+                        Err(_e) => None,
+                    }
+                }
+
+                pub fn modif(file_path: &str) -> Option<std::borrow::Cow<'static, str>> {
+                    use chrono::{DateTime, Utc};
+
+                    let file_path = std::path::Path::new(#folder_path).join(file_path);
+                    match std::fs::metadata(file_path) {
+                        Ok(metadata) => {
+                            match metadata.modified() {
+                                Ok(modif) => {
+                                    let modif: DateTime<Utc> = DateTime::from(modif);
+                                    // Tue, 01 Dec 2020 00:00:00 GMT
+                                    let modif = modif.format("%a, %d %b %Y %T GMT").to_string();
+
+                                    Some(std::borrow::Cow::from(modif))
+                                }
+                                Err(_e) => None,
+                            }
+                        }
+                        Err(_e) => None,
+                    }
+                }
+            }
+        }
+    }
+    .into()
 }
 
 fn impl_asset_embed(ast: &DeriveInput) -> TokenStream {

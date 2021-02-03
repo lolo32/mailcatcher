@@ -1,12 +1,15 @@
-name: Rust
+name: Ci
 
 # Controls when the action will run.
 on:
   # Triggers the workflow on push or pull request events but only for the main branch
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - dev
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -34,8 +37,13 @@ jobs:
           toolchain: stable
           override: true
 
-      # Runs the units tests
-      - name: Run cargo check
+      # Runs the compilation checks
+      - name: Run cargo check with defaults feature
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+
+      - name: Run cargo check with all features
         uses: actions-rs/cargo@v1
         with:
           command: check
@@ -92,32 +100,43 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
+          components: llvm-tools-preview
 
-      # Runs the units tests
+      # Build the binary
+      - name: Build binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all-features
+        env:
+          RUSTFLAGS: "-Zinstrument-coverage"
+
+      # Runs the units tests in Debug mode
       - name: Execute tests
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --all-features
         env:
-          CARGO_INCREMENTAL: 0
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
+          RUSTFLAGS: "-Zinstrument-coverage"
+          LLVM_PROFILE_FILE: "your_name-%p-%m.profraw"
+          RUST_LOG: "mailcatcher"
+
+      - name: Install grcov
+        run: curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
 
       - name: Gather coverage data
-        id: coverage
-        uses: actions-rs/grcov@v0.1
-        with:
-          coveralls-token: ${{ secrets.CODECOV_TOKEN }}
+        run: ./grcov $GITHUB_WORKSPACE --source-dir $GITHUB_WORKSPACE --llvm --commit-sha $GITHUB_SHA --binary-path $GITHUB_WORKSPACE/target/debug/ --output-type lcov --branch --ignore-not-existing --ignore "/*" --output-path $LCOV_DESTINATION --service-name $GITHUB_WORKFLOW
+        env:
+          LCOV_DESTINATION: ${{ runner.temp }}/lcov.info
 
       - name: Codecov upload
         uses: codecov/codecov-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          #files: ./coverage1.xml,./coverage2.xml # optional
-          #flags: unittests # optional
+          files: ${{ runner.temp }}/lcov.info
           name: codecov-mailcatcher # optional
           fail_ci_if_error: true # optional (default = false)
-          verbose: true # optional (default = false)
 
   build:
     strategy:

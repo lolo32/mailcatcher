@@ -1,68 +1,88 @@
-use chrono::{DateTime, Utc};
+use std::ops::Sub;
+
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use fake::{
+    faker::{
+        chrono::en::DateTimeBetween,
+        internet::en::{FreeEmailProvider, SafeEmail},
+        lorem::en::{Paragraphs, Words},
+        name::en::Name,
+    },
+    Fake,
+};
+use serde_json::Value;
+use textwrap::wrap;
 use tide::prelude::json;
 use ulid::Ulid;
 
 use crate::encoding::decode_string;
-use serde_json::Value;
 
+/// Mail storage broker
 pub mod broker;
 
+/// Describe the data type that is held
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub enum Type {
-    // Raw mail content
+    /// Raw mail content
     Raw,
-    // Mail content that is in text format
+    /// Mail content that is in text format
     Text,
-    // Mail content that is in HTML
+    /// Mail content that is in HTML
     Html,
     //Image(String, String),
     //Other(String, String),
 }
 
+/// How to export mail header
+/// * Raw: like it was received
+/// * Humanized: decode it
 pub enum HeaderRepresentation {
+    /// Header like it was received
     Raw,
+    /// Header decoded
     Humanized,
 }
 
-// Content of a mail
+/// Content of a mail
 #[derive(Debug, Clone)]
 pub struct Mail {
-    // Id, internal used and JavaScript identifier
+    /// Id, internal used and JavaScript identifier
     id: Ulid,
-    // From address
+    /// From address
     from: String,
-    // Array of receivers
+    /// Array of receivers
     to: Vec<String>,
-    // Subject of the mail
+    /// Subject of the mail
     subject: String,
-    // Date of reception
+    /// Date of reception
     date: DateTime<Utc>,
-    // Array of headers
+    /// Array of headers
     headers: Vec<String>,
-    // Content of the mail, split in Type
+    /// Content of the mail, split in Type
     data: fnv::FnvHashMap<Type, String>,
 }
 
 impl Mail {
-    // Create a new mail
+    /// Create a new mail
     pub fn new(from: &str, to: &[String], data: &str) -> Self {
         let mut mail = Self {
             id: Ulid::new(),
-            from: from.to_string(),
+            from: from.to_owned(),
             to: to.to_vec(),
-            subject: "(No subject)".to_string(),
+            subject: "(No subject)".to_owned(),
             date: Utc::now(),
             headers: Vec::default(),
             data: fnv::FnvHashMap::default(),
         };
 
         // Store RAW mail content
-        mail.data.insert(Type::Raw, data.to_string());
+        let _ = mail.data.insert(Type::Raw, data.to_owned());
 
-        let (headers, body) = Mail::split_header_body(data);
+        let (headers, body): (String, String) = Self::split_header_body(data);
 
         // Parse the headers
         for header in headers.lines() {
+            #[allow(clippy::indexing_slicing)]
             if &header[..1] == " " {
                 // Multiline header, so append it into multiline content and last entry of the array
                 if let Some(prev_line) = mail.headers.last_mut() {
@@ -72,13 +92,13 @@ impl Mail {
                 }
             }
             // Single line, or first line of a multiline header
-            mail.headers.push(header.to_string());
+            mail.headers.push(header.to_owned());
         }
 
-        mail.data.insert(Type::Text, body);
+        let _ = mail.data.insert(Type::Text, body);
 
         // Extract Date
-        let date_header = mail.get_header_content("Date", HeaderRepresentation::Raw);
+        let date_header: Vec<String> = mail.get_header_content("Date", &HeaderRepresentation::Raw);
         if let Some(date_str) = date_header.first() {
             if let Ok(local_date) = DateTime::parse_from_rfc2822(date_str.as_str()) {
                 mail.date = local_date.with_timezone(&Utc);
@@ -86,7 +106,8 @@ impl Mail {
         }
 
         // Extract Subject
-        let subject_header = mail.get_header_content("Subject", HeaderRepresentation::Raw);
+        let subject_header: Vec<String> =
+            mail.get_header_content("Subject", &HeaderRepresentation::Raw);
         if let Some(subject) = subject_header.first() {
             mail.subject = subject.clone();
         }
@@ -94,8 +115,9 @@ impl Mail {
         mail
     }
 
+    /// Split the string, returning a tuple that is the headers then the body
     pub fn split_header_body(content: &str) -> (String, String) {
-        let mut headers = String::new();
+        let mut headers: String = String::new();
 
         // Iterator over lines
         let mut lines = content.lines();
@@ -111,7 +133,7 @@ impl Mail {
         }
 
         // Parse the body of the mail
-        let mut body = String::new();
+        let mut body: String = String::new();
         if let Some(line) = lines.next() {
             body.push_str(line);
         }
@@ -124,26 +146,26 @@ impl Mail {
     }
 
     /// Retrieve the ID of the mail
-    pub fn get_id(&self) -> Ulid {
+    pub const fn get_id(&self) -> Ulid {
         self.id
     }
 
     /// Retrieve the sender address
-    pub fn from(&self) -> &String {
+    pub const fn from(&self) -> &String {
         &self.from
     }
     /// Retrieve the receivers addresses
-    pub fn to(&self) -> &Vec<String> {
+    pub const fn to(&self) -> &Vec<String> {
         &self.to
     }
 
     /// Retrieve mail date, either from the Date header or if not present from the reception time
-    pub fn get_date(&self) -> DateTime<Utc> {
+    pub const fn get_date(&self) -> DateTime<Utc> {
         self.date
     }
 
     /// Retrieve the subject
-    pub fn get_subject(&self) -> &String {
+    pub const fn get_subject(&self) -> &String {
         &self.subject
     }
 
@@ -159,25 +181,31 @@ impl Mail {
 
     /// Retrieve the header content, from the key name
     /// The data can be in literal format or humanized
-    pub fn get_header_content(&self, key: &str, raw: HeaderRepresentation) -> Vec<String> {
-        let key = format!("{}: ", key);
-        let key_len = key.len();
+    #[allow(clippy::indexing_slicing)]
+    pub fn get_header_content(&self, key: &str, raw: &HeaderRepresentation) -> Vec<String> {
+        let key: String = format!("{}: ", key);
+        let key_len: usize = key.len();
 
         // Iterate over headers list to find the header
         self.get_headers(raw)
             .iter()
             // Filter over key name
-            .filter(|header| header.len() > key_len && &header[..key_len] == key.as_str())
-            // strip only to header content
-            .map(|header| header[key_len..].to_string())
+            .filter_map(|header| {
+                if header.find(' ') == Some(key_len.sub(1)) && &header[..key_len] == key.as_str() {
+                    // strip only to header content
+                    Some(header[key_len..].to_string())
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
     /// Retrieve headers list
-    pub fn get_headers(&self, format: HeaderRepresentation) -> Vec<String> {
+    pub fn get_headers(&self, format: &HeaderRepresentation) -> Vec<String> {
         self.headers
             .iter()
-            .map(|header| match format {
+            .map(|header| match *format {
                 HeaderRepresentation::Raw => header.to_string(),
                 HeaderRepresentation::Humanized => decode_string(header),
             })
@@ -186,7 +214,8 @@ impl Mail {
 
     /// Retrieve mail size
     pub fn get_size(&self) -> usize {
-        self.data.get(&Type::Raw).unwrap().len()
+        #[allow(clippy::indexing_slicing)]
+        self.data[&Type::Raw].as_bytes().len()
     }
 
     /// Retrieve the data type part of the mail
@@ -194,15 +223,80 @@ impl Mail {
         self.data.get(type_)
     }
 
+    /// Return a symplification of the email, for sending it over JSON
     pub fn summary(&self) -> Value {
         json!({
             "id": self.get_id().to_string(),
             "from": self.from().to_string(),
-            "to": self.to().iter().map(|s| s.to_string()).collect::<Vec<String>>(),
+            "to": self.to(),
             "subject": self.get_subject().to_string(),
             "date": self.get_date().timestamp(),
             "size": self.get_size(),
         })
+    }
+
+    /// Generate a fake email, based on Lorem Ispum random content
+    #[allow(unused, clippy::indexing_slicing)]
+    pub fn fake() -> Self {
+        /// Put the first character to uppercase, then do not touch the following
+        fn make_first_uppercase(s: &str) -> String {
+            format!("{}{}", s[0..1].to_uppercase(), s[1..].to_owned())
+        }
+
+        // Expeditor mail address
+        let from: String = SafeEmail().fake();
+        let from_name: String = Name().fake();
+        // Recipient mail address
+        let to: String = SafeEmail().fake();
+        let to_name: String = Name().fake();
+        // Mail subject
+        let subject: Vec<String> = Words(5..10).fake();
+        let subject: String = make_first_uppercase(&subject.join(" "));
+        // Body content
+        let body: String = {
+            let mut body: Vec<String> = Paragraphs(1..8).fake();
+            body[0] = format!("Lorem ipsum dolor sit amet, {}", body[0]);
+            let body: Vec<String> = body
+                .iter()
+                .map(|s| {
+                    s.split('\n')
+                        .map(|s| make_first_uppercase(s))
+                        .collect::<Vec<String>>()
+                        .join("  ")
+                })
+                .collect();
+            wrap(&body.join("\r\n\r\n"), 72).join("\r\n")
+        };
+        // Mail Date
+        let date: DateTime<Utc> = DateTimeBetween(
+            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp(
+                Utc::now().timestamp().sub(15_552_000),
+                0,
+            )),
+            Utc::now(),
+        )
+        .fake();
+
+        let mail_full: String = format!(
+            "Date: {}\r\nFrom: {}<{}>\r\nTo: {}<{}>\r\nSubject: {}\r\nX-Mailer: mailcatcher/Fake\r\nMessage-Id: <{}.{}@{}>\r\n\r\n{}",
+            date.to_rfc2822(),
+            from_name,
+            from,
+            to_name,
+            to,
+            subject,
+            date.timestamp(),
+            date.timestamp_millis(),
+            FreeEmailProvider().fake::<String>(),
+            body,
+        );
+        log::trace!("Faking new mail:\n{}", mail_full);
+
+        Self::new(
+            &format!("{}<{}>", from_name, from),
+            &[format!("{}<{}>", to_name, to)],
+            &mail_full,
+        )
     }
 }
 
@@ -223,49 +317,57 @@ This is a test mailing
 
 
 ";
+    const DATA_COMPLEX: &str = r"From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;
+To: =?ISO-8859-1?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>;
+CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>;
+Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=
+ =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=
+
+This is the content of this mail... but it says nothing now.";
 
     #[test]
+    #[allow(clippy::indexing_slicing)]
     fn split_headers_body() {
-        let mail = Mail::new("from@example.com", &["to@example.com".into()], DATA_SIMPLE);
+        let mail: Mail = Mail::new("from@example.com", &["to@example.com".into()], DATA_SIMPLE);
 
         assert_eq!(mail.headers.len(), 6);
         assert_eq!(mail.from, "from@example.com");
         assert_eq!(mail.to.len(), 1);
-        assert_eq!(mail.to.get(0).unwrap(), "to@example.com");
+        assert_eq!(mail.to[0], "to@example.com");
         assert!(mail.data.contains_key(&Type::Text));
-        assert_eq!(
-            mail.data.get(&Type::Text).unwrap(),
-            "This is a test mailing\r\n\r\n"
-        );
+        assert_eq!(mail.data[&Type::Text], "This is a test mailing\r\n\r\n");
     }
 
     #[test]
     fn test_getting_datetime() {
-        let mail = Mail::new("", &[], DATA_SIMPLE);
+        let mail: Mail = Mail::new("", &[], DATA_SIMPLE);
 
-        let date = mail.get_date();
+        let date: DateTime<Utc> = mail.get_date();
         assert_eq!(date.timezone(), Utc);
 
-        let dt = Utc.ymd(2020, 11, 22).and_hms(0, 58, 23);
+        let dt: DateTime<Utc> = Utc.ymd(2020, 11, 22).and_hms(0, 58, 23);
         assert_eq!(date, dt);
     }
 
     #[test]
     fn get_text() {
-        let mail = Mail::new("", &[], DATA_SIMPLE);
+        let mail: Mail = Mail::new("", &[], DATA_SIMPLE);
 
-        let text = mail.get_text();
+        let text: Option<&String> = mail.get_text();
 
         assert!(text.is_some());
-        assert_eq!(text.unwrap(), &"This is a test mailing\r\n\r\n".to_string());
+        assert_eq!(
+            text.expect("mail text body"),
+            &"This is a test mailing\r\n\r\n".to_owned()
+        );
 
         assert!(mail.get_html().is_none());
     }
 
     #[test]
     fn summary_is_json() {
-        let mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_SIMPLE);
-        let summary = mail.summary().to_string();
+        let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_SIMPLE);
+        let summary: String = mail.summary().to_string();
 
         assert_eq!(
             summary,
@@ -273,6 +375,42 @@ This is a test mailing
                 r#"{{"date":1606006703,"from":"from@example.org","id":"{}","size":251,"subject":"test Sun, 22 Nov 2020 01:58:23 +0100","to":["to@example.net"]}}"#,
                 mail.id
             )
+        );
+    }
+
+    #[test]
+    #[allow(clippy::indexing_slicing)]
+    fn multiline_header_content_and_humanized() {
+        let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
+        let subject_raw: Vec<String> =
+            mail.get_header_content("Subject", &HeaderRepresentation::Raw);
+
+        assert_eq!(subject_raw.len(), 1);
+        let subject_raw: &String = &subject_raw[0];
+        assert_eq!(subject_raw, "=?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=");
+
+        let subject_human: Vec<String> =
+            mail.get_header_content("Subject", &HeaderRepresentation::Humanized);
+
+        assert_eq!(subject_human.len(), 1);
+        let subject_human: &String = &subject_human[0];
+        assert_eq!(
+            subject_human,
+            "If you can read this you understand the example."
+        );
+    }
+
+    #[test]
+    fn get_data() {
+        let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
+
+        assert!(mail.get_data(&Type::Html).is_none());
+
+        let content: Option<&String> = mail.get_data(&Type::Text);
+        assert!(content.is_some());
+        assert_eq!(
+            content.expect("mail body"),
+            "This is the content of this mail... but it says nothing now."
         );
     }
 }

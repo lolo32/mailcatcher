@@ -5,6 +5,10 @@ authors = ["Lolo_32 <lol.b@free.fr>"]
 edition = "2018"
 license = "Apache-2.0"
 description = "Catchall mail SMTP server used on development computer"
+keywords = ["smtp", "fake", "catchall"]
+repository = "https://github.com/lolo32/mailcatcher"
+categories = ["development-tools"]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,6 +19,7 @@ members = [
 ]
 
 [features]
+faking = []
 
 [dependencies.async-std]
 version = "1.9.0"
@@ -42,7 +47,6 @@ version = "0.8.2"
 [dependencies.fake]
 version = "2.4.0"
 features = ["chrono"]
-optional = true
 
 [dependencies.fnv]
 version = "1.0.7"
@@ -57,7 +61,7 @@ version = "1.4.0"
 default-features = false
 
 [dependencies.log]
-version = "0.4.13"
+version = "0.4.14"
 default-features = false
 
 [dependencies.mailcatcher-derive]
@@ -76,6 +80,9 @@ default-features = false
 # feature std needed by regex
 features = ["std"]
 
+[dependencies.serde]
+version = "1.0.123"
+
 [dependencies.serde_json]
 version = "1.0.61"
 default-features = false
@@ -85,8 +92,11 @@ features = ["alloc"]
 version = "0.3.21"
 default-features = false
 
+[dependencies.textwrap]
+version = "=0.11"
+
 [dependencies.tide]
-version = "0.15.0"
+version = "0.16.0"
 default-features = false
 features = ["h1-server"]
 

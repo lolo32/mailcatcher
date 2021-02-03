@@ -1,10 +1,16 @@
 # MailCatcher
 
+![CI](https://github.com/lolo32/mailcatcher/workflows/Ci/badge.svg)
+![Security audit](https://github.com/lolo32/mailcatcher/workflows/Security%20audit/badge.svg)
+[![codecov](https://codecov.io/gh/lolo32/mailcatcher/branch/main/graph/badge.svg?token=DH3JmaeWaZ)](https://codecov.io/gh/lolo32/mailcatcher)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 ## What can I do, what's that?
 
 This software can be used to have a SMTP mail server on any computer that
-accept any mail and display them using any web browser, and does not really
-send them to any remote recipient address.
+accept any mail and display them using any web browser.
+
+It DOES NOT really send them to any remote recipient address.
 
 It acts as a SMTP server that can be used on port 1025 (_25 for default 
 port_), and a web server that display the deceived mail on port 1080 (_80 
