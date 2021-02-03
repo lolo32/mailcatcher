@@ -132,12 +132,21 @@ struct Opt {
 fn main() -> Result<()> {
     // Initialize the log crate/macros based on RUST_LOG env value
     env_logger::init();
+    setup_log();
 
     let opt: Opt = Opt::from_args();
     log::debug!("Options: {:?}", opt);
 
     // Start the program, that is async, so block waiting it's end
     task::block_on(main_fut(opt))
+}
+
+/// Log output configuration
+fn setup_log() {
+    let logger = femme::pretty::Logger::new();
+    async_log::Logger::wrap(logger, || 12)
+        .start(log::LevelFilter::Trace)
+        .expect("async-log configured");
 }
 
 /// async main
@@ -152,7 +161,7 @@ async fn main_fut(opt: Opt) -> Result<()> {
     let (tx_mail_from_smtp, mut rx_mail_from_smtp): Channel<Mail> = channel::bounded(1);
     let (tx_mail_broker, rx_mail_broker): Channel<MailEvt> = channel::unbounded();
 
-    let mail_broker = mail_broker(rx_mail_broker);
+    let mail_broker = mail_broker(rx_mail_broker, "mail_broker");
 
     let (tx_new_mail, rx_new_mail): Channel<Mail> = channel::bounded(1);
     let tx_http_new_mail: Sender<MailEvt> = tx_mail_broker.clone();
@@ -207,11 +216,12 @@ async fn main_fut(opt: Opt) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
 mod windows {
     // based on https://stackoverflow.com/questions/54047397/how-to-make-a-tray-icon-for-windows-using-the-winapi-crate
 
     //-----Import Libraries (called crates)-----
-    extern crate winapi;
+    use winapi;
     //-----Import Built-in Libraries (not called crates)-----
     use std::ffi::OsStr;
     //get size of stuff and init with zeros
@@ -268,7 +278,9 @@ mod windows {
         let mut nidsz_tip_length = tray_tool_tip_step_utf16.len() as u64;
 
         //shows the icon
-        unsafe { winapi::um::shellapi::Shell_NotifyIconW(winapi::um::shellapi::NIM_ADD, &mut nid) };
+        let _ = unsafe {
+            winapi::um::shellapi::Shell_NotifyIconW(winapi::um::shellapi::NIM_ADD, &mut nid)
+        };
         let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
 
         //fill with 0's (clear it out I hope)
@@ -286,14 +298,14 @@ mod windows {
         // nidsz_tip_length = tray_tool_tip.chars().count() as u64;
         //gets the size of nid.szTip (tooltip length) for the UTF-16 format, which is what Windows cares about
         nidsz_tip_length = tray_tool_tip_step_utf16.len() as u64;
-        unsafe {
+        let _ = unsafe {
             //updates system tray icon
             winapi::um::shellapi::Shell_NotifyIconW(winapi::um::shellapi::NIM_MODIFY, &mut nid)
         };
 
         let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
 
-        unsafe {
+        let _ = unsafe {
             //deletes system tray icon when done
             winapi::um::shellapi::Shell_NotifyIconW(winapi::um::shellapi::NIM_DELETE, &mut nid)
         };

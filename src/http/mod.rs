@@ -202,7 +202,7 @@ mod tests {
             }
             let _mail_broker_task = spawn_task_and_swallow_log_errors(
                 "test_routes_mails".to_owned(),
-                mail_broker(rx_mail_broker),
+                mail_broker(rx_mail_broker, "test_routes_broker"),
             );
 
             // Init the HTTP side
