@@ -82,7 +82,7 @@ mod tests {
             }
         }
     }
-    
+
     fn get_asset_path() -> PathBuf {
         Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| {
             env::current_dir()
@@ -91,7 +91,7 @@ mod tests {
                 .expect("cwd to str")
                 .to_owned()
         }))
-            .join("asset")
+        .join("asset")
     }
 
     #[test]
@@ -113,10 +113,7 @@ mod tests {
             .ok_or("Content-Encoding header unavailable")?;
         assert_eq!(header_encoding[0], "deflate");
 
-        let meta = metadata(
-            get_asset_path()
-            .join("home.html"),
-        )?;
+        let meta = metadata(get_asset_path().join("home.html"))?;
 
         let header_length = response
             .header(headers::CONTENT_LENGTH)
@@ -128,7 +125,7 @@ mod tests {
             .header(headers::LAST_MODIFIED)
             .ok_or("Last-Modified header unavailable")?;
         assert!(header_modified[0].to_string().len() > 1);
-        
+
         Ok(())
     }
 
@@ -148,10 +145,7 @@ mod tests {
         let header_encoding = response.header(headers::CONTENT_ENCODING);
         assert!(header_encoding.is_none());
 
-        let meta = metadata(
-            get_asset_path()
-            .join("home.html"),
-        )?;
+        let meta = metadata(get_asset_path().join("home.html"))?;
 
         let header_length = response
             .header(headers::CONTENT_LENGTH)
@@ -163,7 +157,7 @@ mod tests {
             .header(headers::LAST_MODIFIED)
             .ok_or("Last-Modified header unavailable")?;
         assert!(header_modified[0].to_string().len() > 1);
-        
+
         Ok(())
     }
 }

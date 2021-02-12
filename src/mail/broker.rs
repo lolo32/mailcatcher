@@ -178,7 +178,10 @@ mod tests {
                     .await?;
                 // Read known id result
                 let received_id: Option<Ulid> = r.next().await.ok_or("no received response")?;
-                assert_eq!(received_id.ok_or("id does not exists")?, removed_mail.get_id());
+                assert_eq!(
+                    received_id.ok_or("id does not exists")?,
+                    removed_mail.get_id()
+                );
             }
 
             // -----------------------
