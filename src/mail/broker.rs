@@ -78,149 +78,147 @@ mod tests {
 
     use super::*;
 
+    fn init() {
+        // Initialize the log crate/macros based on RUST_LOG env value
+        match env_logger::try_init() {
+            Ok(_) => {
+                // Log initialisation OK
+            }
+            Err(_e) => {
+                // Already initialized
+            }
+        }
+    }
+
     #[test]
-    fn test_mail_broker() {
+    fn test_mail_broker() -> crate::Result<()> {
         #[allow(clippy::indexing_slicing, clippy::panic)]
-        task::block_on(async {
-            let (sender, receiver): crate::Channel<MailEvt> = channel::unbounded();
+        async fn the_test(sender: Sender<MailEvt>) -> crate::Result<()> {
+            // Mails pull to compare
+            let mut mails = Vec::new();
 
-            // Launch and process commands
-            assert!(process(receiver)
-                .try_join(async move {
-                    // Mails pull to compare
-                    let mut mails = Vec::new();
+            // -----------------------
+            // Test adding mails
+            // -----------------------
+            for _ in 0..3 {
+                let mail = Mail::fake();
+                mails.push(mail.clone());
+                sender.send(MailEvt::NewMail(mail)).await?;
+            }
 
-                    // -----------------------
-                    // Test adding mails
-                    // -----------------------
-                    for _ in 0..3 {
-                        let mail = Mail::fake();
-                        mails.push(mail.clone());
-                        sender
-                            .send(MailEvt::NewMail(mail))
-                            .await
-                            .expect("mail to be stored");
-                    }
+            // -----------------------
+            // Test getting 1 mail by id
+            // -----------------------
+            {
+                // Stream channel to communicate
+                let (s, mut r): crate::Channel<Option<Mail>> = channel::unbounded();
 
-                    // -----------------------
-                    // Test getting 1 mail by id
-                    // -----------------------
-                    {
-                        // Stream channel to communicate
-                        let (s, mut r): crate::Channel<Option<Mail>> = channel::unbounded();
+                // Stream for unknown id
+                sender
+                    .send(MailEvt::GetMail(s.clone(), Ulid::new()))
+                    .await?;
 
-                        // Stream for unknown id
-                        sender
-                            .send(MailEvt::GetMail(s.clone(), Ulid::new()))
-                            .await
-                            .expect("GetMail sent");
+                // Read unknown id result
+                let received_none: Option<Mail> = r.next().await.ok_or("no response received")?;
+                assert!(received_none.is_none());
 
-                        // Read unknown id result
-                        let received_none: Option<Mail> =
-                            r.next().await.expect("response received");
-                        assert!(received_none.is_none());
+                // Stream for known id
+                sender.send(MailEvt::GetMail(s, mails[0].get_id())).await?;
 
-                        // Stream for known id
-                        sender
-                            .send(MailEvt::GetMail(s, mails[0].get_id()))
-                            .await
-                            .expect("GetMail sent");
+                // Read known id result
+                let received_mail: Option<Mail> = r.next().await.ok_or("no response received")?;
+                assert_eq!(
+                    received_mail.ok_or("mail does not exists")?.get_id(),
+                    mails[0].get_id()
+                );
+            }
 
-                        // Read known id result
-                        let received_mail: Option<Mail> =
-                            r.next().await.expect("response received");
-                        assert!(received_mail.is_some());
-                        assert_eq!(
-                            received_mail.expect("mail exists").get_id(),
-                            mails[0].get_id()
-                        );
-                    }
+            // -----------------------
+            // Retrieve all mails
+            // -----------------------
+            {
+                // Stream channel to communicate
+                let (s, mut r): crate::Channel<Mail> = channel::unbounded();
 
-                    // -----------------------
-                    // Retrieve all mails
-                    // -----------------------
-                    {
-                        // Stream channel to communicate
-                        let (s, mut r): crate::Channel<Mail> = channel::unbounded();
+                sender.send(MailEvt::GetAll(s)).await?;
+                let mut mail_retrieved = Vec::new();
+                while let Some(received_mail) = r.next().await {
+                    // result is not added ordered
+                    mail_retrieved.push(received_mail.get_id());
+                }
+                // 3 mails added, so must found 3 too...
+                assert_eq!(mail_retrieved.len(), mails.len());
+                for mail in &mails {
+                    assert!(
+                        mail_retrieved.contains(&mail.get_id()),
+                        "Received mail id does not exists"
+                    );
+                }
+            }
 
-                        sender.send(MailEvt::GetAll(s)).await.expect("GetAll sent");
-                        let mut mail_retrieved = Vec::new();
-                        while let Some(received_mail) = r.next().await {
-                            // result is not added ordered
-                            mail_retrieved.push(received_mail.get_id());
-                        }
-                        // 3 mails added, so must found 3 too...
-                        assert_eq!(mail_retrieved.len(), mails.len());
-                        for mail in &mails {
-                            assert!(
-                                mail_retrieved.contains(&mail.get_id()),
-                                "Received mail id does not exists"
-                            );
-                        }
-                    }
+            // -----------------------
+            // Test removing 1 mail
+            // -----------------------
+            {
+                // Stream channel to communicate
+                let (s, mut r): crate::Channel<Option<Ulid>> = channel::unbounded();
 
-                    // -----------------------
-                    // Test removing 1 mail
-                    // -----------------------
-                    {
-                        // Stream channel to communicate
-                        let (s, mut r): crate::Channel<Option<Ulid>> = channel::unbounded();
+                //  ... for unknown id
+                sender.send(MailEvt::Remove(s.clone(), Ulid::new())).await?;
+                // Read unknown id result
+                let received_none: Option<Ulid> = r.next().await.ok_or("no received response")?;
+                assert!(received_none.is_none());
+                // 0 mails added, so must found 0 too...
 
-                        //  ... for unknown id
-                        sender
-                            .send(MailEvt::Remove(s.clone(), Ulid::new()))
-                            .await
-                            .expect("Remove sent");
-                        // Read unknown id result
-                        let received_none: Option<Ulid> =
-                            r.next().await.expect("received response");
-                        assert!(received_none.is_none());
-                        // 0 mails added, so must found 0 too...
+                let removed_mail = mails.remove(0);
 
-                        let removed_mail = mails.remove(0);
+                // ... for known id
+                sender
+                    .send(MailEvt::Remove(s, removed_mail.get_id()))
+                    .await?;
+                // Read known id result
+                let received_id: Option<Ulid> = r.next().await.ok_or("no received response")?;
+                assert_eq!(received_id.ok_or("id does not exists")?, removed_mail.get_id());
+            }
 
-                        // ... for known id
-                        sender
-                            .send(MailEvt::Remove(s, removed_mail.get_id()))
-                            .await
-                            .expect("Remove sent");
-                        // Read known id result
-                        let received_id: Option<Ulid> = r.next().await.expect("received response");
-                        assert_eq!(received_id.expect("id"), removed_mail.get_id());
-                    }
+            // -----------------------
+            // Test removing all mails from tha pool
+            // -----------------------
+            {
+                // Stream channel to communicate
+                let (s, mut r): crate::Channel<Ulid> = channel::unbounded();
 
-                    // -----------------------
-                    // Test removing all mails from tha pool
-                    // -----------------------
-                    {
-                        // Stream channel to communicate
-                        let (s, mut r): crate::Channel<Ulid> = channel::unbounded();
+                // ... ask to remove all mails
+                sender.send(MailEvt::RemoveAll(s)).await?;
+                let mut mail_removed = Vec::new();
+                while let Some(received_mail) = r.next().await {
+                    mail_removed.push(received_mail);
+                }
+                // 2 mails added, so must found 2 too...
+                assert_eq!(mail_removed.len(), mails.len());
 
-                        // ... ask to remove all mails
-                        sender
-                            .send(MailEvt::RemoveAll(s))
-                            .await
-                            .expect("RemoveAll sent");
-                        let mut mail_removed = Vec::new();
-                        while let Some(received_mail) = r.next().await {
-                            mail_removed.push(received_mail);
-                        }
-                        // 2 mails added, so must found 2 too...
-                        assert_eq!(mail_removed.len(), mails.len());
+                for mail in mails {
+                    assert!(
+                        mail_removed.contains(&mail.get_id()),
+                        "Removed mail id does not exists"
+                    );
+                }
+            }
 
-                        for mail in mails {
-                            assert!(
-                                mail_removed.contains(&mail.get_id()),
-                                "Removed mail id does not exists"
-                            );
-                        }
-                    }
+            Ok(())
+        }
 
-                    Ok(())
-                })
-                .timeout(Duration::from_millis(500))
-                .await
-                .is_ok());
-        });
+        init();
+
+        let (sender, receiver): crate::Channel<MailEvt> = channel::unbounded();
+
+        task::block_on(
+            process(receiver)
+                .try_join(the_test(sender))
+                .timeout(Duration::from_millis(500)),
+        )?
+        .map(|a| {
+            assert_eq!(a, ((), ()));
+        })
     }
 }

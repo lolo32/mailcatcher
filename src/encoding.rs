@@ -75,8 +75,22 @@ fn replace_byte(caps: &regex::bytes::Captures) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    fn init() {
+        // Initialize the log crate/macros based on RUST_LOG env value
+        match env_logger::try_init() {
+            Ok(_) => {
+                // Log initialisation OK
+            }
+            Err(_e) => {
+                // Already initialized
+            }
+        }
+    }
+
     #[test]
     fn decode_string_literal() {
+        init();
+
         let text: &str = "Subject: This is a simple literal string";
         let a: String = decode_string(text);
 
@@ -85,6 +99,8 @@ mod tests {
 
     #[test]
     fn decode_string_unknown_charset() {
+        init();
+
         let text: &str = "Subject: =?invalid-charset?B?This is a simple literal string?=";
         let a: String = decode_string(text);
 
@@ -93,6 +109,8 @@ mod tests {
 
     #[test]
     fn decode_string_base64_encoded() {
+        init();
+
         let text: &str = "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\n =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=";
         let a: String = decode_string(text);
 
@@ -104,6 +122,8 @@ mod tests {
 
     #[test]
     fn decode_string_quoted_encoded() {
+        init();
+
         let text: &str = "From: =?ISO-8859-1?Q?Patrik_F=E4ltstr=F6m?= <paf@nada.kth.se>";
         let a: String = decode_string(text);
 
@@ -113,6 +133,8 @@ mod tests {
     #[test]
     #[allow(clippy::indexing_slicing)]
     fn hex_decoding() {
+        init();
+
         assert_eq!(HEX_BYTE[&"00".to_owned()], 0);
         assert_eq!(HEX_BYTE[&"10".to_owned()], 0x10);
         assert_eq!(HEX_BYTE[&"FF".to_owned()], 255);

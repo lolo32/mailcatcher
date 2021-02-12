@@ -167,6 +167,18 @@ mod tests {
         size: usize,
     }
 
+    fn init() {
+        // Initialize the log crate/macros based on RUST_LOG env value
+        match env_logger::try_init() {
+            Ok(_) => {
+                // Log initialisation OK
+            }
+            Err(_e) => {
+                // Already initialized
+            }
+        }
+    }
+
     fn get_asset_path() -> PathBuf {
         Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| {
             env::current_dir()
@@ -180,8 +192,8 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines, clippy::panic)]
-    fn test_routes() {
-        task::block_on(async {
+    fn test_routes() -> crate::Result<()> {
+        async fn the_test() -> crate::Result<()> {
             let (tx_mail_broker, rx_mail_broker): crate::Channel<MailEvt> = channel::unbounded();
             let (_tx_new_mail, rx_new_mail): crate::Channel<Mail> = channel::bounded(1);
             #[cfg(feature = "faking")]
@@ -195,10 +207,7 @@ mod tests {
             for _ in 0..10 {
                 let mail: Mail = Mail::fake();
                 mails.push(mail.clone());
-                tx_mail_broker
-                    .send(MailEvt::NewMail(mail))
-                    .await
-                    .expect("sent new mail");
+                tx_mail_broker.send(MailEvt::NewMail(mail)).await?;
             }
             let _mail_broker_task = spawn_task_and_swallow_log_errors(
                 "test_routes_mails".to_owned(),
@@ -212,7 +221,7 @@ mod tests {
                 #[cfg(feature = "faking")]
                 tx_new_mail: tx_mail_from_faking,
             };
-            let app: Server<State<SseEvt>> = init(params).await.expect("tide initialised");
+            let app: Server<State<SseEvt>> = super::init(params).await?;
 
             // Assets
             for (filename, mime_type) in vec![
@@ -220,100 +229,78 @@ mod tests {
                 ("w3.css", mime::CSS),
                 ("hyperapp.js", mime::JAVASCRIPT),
             ] {
-                let mut url = Url::parse("http://localhost/").expect("url parse");
+                let mut url = Url::parse("http://localhost/")?;
                 if filename != "home.html" {
                     url.set_path(filename);
                 };
                 let request: Request = Request::new(Method::Get, url);
-                let mut response: Response = app.respond(request).await.expect("request responded");
+                let mut response: Response = app.respond(request).await?;
                 assert_eq!(
                     response
                         .header(headers::CONTENT_TYPE)
-                        .expect("Content-Type exists"),
+                        .ok_or("Content-Type exists unavailable")?,
                     &mime_type.to_string()
                 );
-                let mut fs: File = File::open(get_asset_path().join(filename))
-                    .await
-                    .expect("opening asset file");
+                let mut fs: File = File::open(get_asset_path().join(filename)).await?;
                 let mut home_content: String = String::new();
-                let read: usize = fs
-                    .read_to_string(&mut home_content)
-                    .await
-                    .expect("file read");
+                let read: usize = fs.read_to_string(&mut home_content).await?;
                 assert!(read > 0, "File content must have some bytes");
                 assert_eq!(read, home_content.len());
-                assert_eq!(
-                    response
-                        .body_string()
-                        .await
-                        .expect("extract body from response"),
-                    home_content
-                );
+                assert_eq!(response.body_string().await?, home_content);
             }
 
             // Test deflate
             {
-                let mut request: Request = Request::new(
-                    Method::Get,
-                    Url::parse("http://localhost/").expect("url parsing"),
-                );
+                let mut request: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/")?);
                 let _ = request.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
-                let mut response: Response = app.respond(request).await.expect("received response");
+                let mut response: Response = app.respond(request).await?;
                 assert_eq!(
                     response
                         .header(headers::CONTENT_TYPE)
-                        .expect("Content-Type header present"),
+                        .ok_or("Content-Type header unavailable")?,
                     &mime::HTML.to_string()
                 );
                 assert_eq!(
                     response
                         .header(headers::CONTENT_ENCODING)
-                        .expect("Content-Encoding header present"),
+                        .ok_or("Content-Encoding header unavailable")?,
                     "deflate"
                 );
-                let mut fs: File = File::open(get_asset_path().join("home.html"))
-                    .await
-                    .expect("asset/home.html opened");
+                let mut fs: File = File::open(get_asset_path().join("home.html")).await?;
                 let mut home_content: String = String::new();
-                let read: usize = fs
-                    .read_to_string(&mut home_content)
-                    .await
-                    .expect("home.html read");
+                let read: usize = fs.read_to_string(&mut home_content).await?;
                 assert!(read > 0, "File content must have some bytes");
                 assert_eq!(read, home_content.len());
-                let res_content: Vec<u8> = response.body_bytes().await.expect("response body got");
+                let res_content: Vec<u8> = response.body_bytes().await?;
                 // Deflate the content
                 let res_content: Vec<u8> = miniz_oxide::inflate::decompress_to_vec(&res_content)
-                    .expect("body uncompressed");
-                let res_content: String =
-                    String::from_utf8(res_content).expect("string to be utf-8 valid");
+                    .map_err(|e| format!("{:?}", e))?;
+                let res_content: String = String::from_utf8(res_content)?;
                 assert_eq!(res_content, home_content);
             }
 
             // Get all mails
             {
-                let request: Request = Request::new(
-                    Method::Get,
-                    Url::parse("http://localhost/mails").expect("url parse"),
-                );
-                let mut response: Response = app.respond(request).await.expect("received response");
+                let request: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/mails")?);
+                let mut response: Response = app.respond(request).await?;
                 assert_eq!(
                     response
                         .header(headers::CONTENT_TYPE)
-                        .expect("Content-Type header present"),
+                        .ok_or("Content-Type header unavailable")?,
                     &mime::JSON.to_string()
                 );
                 let mut mails: Vec<MailSummary> = mails
                     .iter()
                     .map(|mail| {
                         serde_json::from_value::<MailSummary>(mail.summary())
-                            .expect("convert from Value")
+                            .map_err(|e| format!("{:?}", e))
                     })
-                    .collect();
+                    .collect::<Result<Vec<_>, _>>()?;
                 mails.sort_by(|a, b| a.id.cmp(&b.id));
-                let txt: String = response.body_string().await.expect("response body got");
-                let mut txt: Vec<MailSummary> =
-                    serde_json::from_str(&txt).expect("convertion from JSON");
+                let txt: String = response.body_string().await?;
+                let mut txt: Vec<MailSummary> = serde_json::from_str(&txt)?;
                 txt.sort_by(|a, b| a.id.cmp(&b.id));
                 assert_eq!(mails, txt);
             }
@@ -330,11 +317,9 @@ mod tests {
                 let mail: &Mail = &mails[0];
 
                 // Non existent mail id
-                let request: Request = Request::new(
-                    Method::Get,
-                    Url::parse("http://localhost/mail/1").expect("url parsing"),
-                );
-                let response: Response = app.respond(request).await.expect("response received");
+                let request: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/mail/1")?);
+                let response: Response = app.respond(request).await?;
                 assert_eq!(response.status(), StatusCode::NotFound);
 
                 // Valid mail id
@@ -343,25 +328,21 @@ mod tests {
                     Url::parse(&format!(
                         "http://localhost/mail/{}",
                         mail.get_id().to_string()
-                    ))
-                    .expect("url parsing"),
+                    ))?,
                 );
-                let mut response: Response = app.respond(request).await.expect("received response");
+                let mut response: Response = app.respond(request).await?;
                 assert_eq!(
                     response
                         .header(headers::CONTENT_TYPE)
-                        .expect("Content-Type header present"),
+                        .ok_or("Content-Type header unavailable")?,
                     &mime::JSON.to_string()
                 );
                 let mail: MailAll = serde_json::from_value(json!({
                     "headers": mail.get_headers(&HeaderRepresentation::Humanized),
                     "raw": mail.get_headers(&HeaderRepresentation::Raw),
-                    "data": mail.get_text().expect("mail data").clone(),
-                }))
-                .expect("convert from JSON to MailAll");
-                let txt: MailAll =
-                    serde_json::from_str(&response.body_string().await.expect("response body"))
-                        .expect("JSON to MailAll");
+                    "data": mail.get_text().ok_or("data mail empty")?.clone(),
+                }))?;
+                let txt: MailAll = serde_json::from_str(&response.body_string().await?)?;
                 assert_eq!(mail, txt);
             }
 
@@ -369,56 +350,56 @@ mod tests {
             #[cfg(feature = "faking")]
             {
                 // Without number of mail
-                let request: Request = Request::new(
-                    Method::Get,
-                    Url::parse("http://localhost/fake").expect("url parse"),
-                );
-                let mut response: Response = app.respond(request).await.expect("received response");
+                let request: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/fake")?);
+                let mut response: Response = app.respond(request).await?;
 
-                let body = response.body_string().await.expect("body string");
+                let body = response.body_string().await?;
                 assert_eq!(body, "OK: 1");
 
-                let fake_mail_1 = rx_mail_from_faking.next().await.expect("mail");
+                let fake_mail_1 = rx_mail_from_faking.next().await.ok_or("no mail")?;
                 assert!(fake_mail_1
                     .get_text()
-                    .expect("text")
+                    .ok_or(" no data text")?
                     .starts_with("Lorem ipsum dolor sit "));
 
                 // With 1 mail
-                let request: Request = Request::new(
-                    Method::Get,
-                    Url::parse("http://localhost/fake/1").expect("url parse"),
-                );
-                let mut response: Response = app.respond(request).await.expect("received response");
+                let request: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/fake/1")?);
+                let mut response: Response = app.respond(request).await?;
 
-                let fake_mail_2 = rx_mail_from_faking.next().await.expect("mail");
+                let fake_mail_2 = rx_mail_from_faking.next().await.ok_or("no mail")?;
                 assert!(fake_mail_2
                     .get_text()
-                    .expect("text")
+                    .ok_or("no data text")?
                     .starts_with("Lorem ipsum dolor sit "));
 
-                let body = response.body_string().await.expect("body string");
+                let body = response.body_string().await?;
                 assert_eq!(body, "OK: 1");
 
                 // With 11 mail
-                let request: Request = Request::new(
-                    Method::Get,
-                    Url::parse("http://localhost/fake/11").expect("url parse"),
-                );
-                let mut response: Response = app.respond(request).await.expect("received response");
+                let request: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/fake/11")?);
+                let mut response: Response = app.respond(request).await?;
 
                 let mut mails = Vec::new();
                 for _ in 0..11 {
-                    mails.push(rx_mail_from_faking.next().await.expect("mail"));
+                    mails.push(rx_mail_from_faking.next().await.ok_or("no mail")?);
                 }
                 assert_eq!(mails.len(), 11);
 
-                let body = response.body_string().await.expect("body string");
+                let body = response.body_string().await?;
                 assert_eq!(body, "OK: 11");
 
                 // No more waiting in the fake stream
                 assert!(rx_mail_from_faking.is_empty());
             }
-        });
+
+            Ok(())
+        }
+
+        init();
+
+        task::block_on(the_test())
     }
 }

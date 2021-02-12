@@ -325,9 +325,23 @@ Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=
 
 This is the content of this mail... but it says nothing now.";
 
+    fn init() {
+        // Initialize the log crate/macros based on RUST_LOG env value
+        match env_logger::try_init() {
+            Ok(_) => {
+                // Log initialisation OK
+            }
+            Err(_e) => {
+                // Already initialized
+            }
+        }
+    }
+
     #[test]
     #[allow(clippy::indexing_slicing)]
     fn split_headers_body() {
+        init();
+
         let mail: Mail = Mail::new("from@example.com", &["to@example.com".into()], DATA_SIMPLE);
 
         assert_eq!(mail.headers.len(), 6);
@@ -340,6 +354,8 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn test_getting_datetime() {
+        init();
+
         let mail: Mail = Mail::new("", &[], DATA_SIMPLE);
 
         let date: DateTime<Utc> = mail.get_date();
@@ -351,11 +367,12 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn get_text() {
+        init();
+
         let mail: Mail = Mail::new("", &[], DATA_SIMPLE);
 
         let text: Option<&String> = mail.get_text();
 
-        assert!(text.is_some());
         assert_eq!(
             text.expect("mail text body"),
             &"This is a test mailing\r\n\r\n".to_owned()
@@ -366,6 +383,8 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn summary_is_json() {
+        init();
+
         let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_SIMPLE);
         let summary: String = mail.summary().to_string();
 
@@ -381,6 +400,8 @@ This is the content of this mail... but it says nothing now.";
     #[test]
     #[allow(clippy::indexing_slicing)]
     fn multiline_header_content_and_humanized() {
+        init();
+
         let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
         let subject_raw: Vec<String> =
             mail.get_header_content("Subject", &HeaderRepresentation::Raw);
@@ -402,12 +423,13 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn get_data() {
+        init();
+
         let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
 
         assert!(mail.get_data(&Type::Html).is_none());
 
         let content: Option<&String> = mail.get_data(&Type::Text);
-        assert!(content.is_some());
         assert_eq!(
             content.expect("mail body"),
             "This is the content of this mail... but it says nothing now."
