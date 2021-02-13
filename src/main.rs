@@ -205,11 +205,104 @@ async fn main_fut(opt: Opt) -> Result<()> {
 
 #[cfg(test)]
 mod test {
-    pub fn log_init() {
-        // Initialize the log crate/macros based on RUST_LOG env value
-        let logger = femme::pretty::Logger::new();
+    //! Pretty print logs.
 
-        match async_log::Logger::wrap(logger, || 12).start(log::LevelFilter::Debug) {
+    use console::style;
+    use log::{kv, Level, Record};
+    use std::time::SystemTime;
+
+    pub fn log_init() {
+        use std::io::Write;
+
+        fn color(record: &Record, msg: String) -> String {
+            match record.level() {
+                Level::Trace => msg,
+                Level::Debug => format!("{}", style(msg).blue()),
+                Level::Info => format!("{}", style(msg).green()),
+                Level::Warn => format!("{}", style(msg).yellow()),
+                Level::Error => format!("{}", style(msg).red()),
+            }
+        }
+
+        fn format_ts() -> String {
+            humantime::format_rfc3339_seconds(SystemTime::now()).to_string()
+        }
+
+        fn format_level(record: &Record) -> String {
+            color(record, format!("{:<5}", record.level().to_string()))
+        }
+
+        fn format_module(record: &Record) -> String {
+            match record.module_path() {
+                Some(module) => format!(" {}", module),
+                None => "".to_owned(),
+            }
+        }
+
+        fn format_kv(record: &Record) -> String {
+            struct Visitor {
+                string: String,
+            }
+
+            impl<'kvs> kv::Visitor<'kvs> for Visitor {
+                fn visit_pair(
+                    &mut self,
+                    key: kv::Key<'kvs>,
+                    val: kv::Value<'kvs>,
+                ) -> Result<(), kv::Error> {
+                    let string = &format!("\u{2716} {} \u{203a} {} ", style(key).magenta(), val);
+                    self.string.push_str(string);
+                    Ok(())
+                }
+            }
+
+            let mut visitor = Visitor {
+                string: "{ ".to_owned(),
+            };
+            record.key_values().visit(&mut visitor).expect("key values");
+            visitor.string.push_str("\u{2716} }");
+            visitor.string
+        }
+
+        fn format_line(record: &Record<'_>) -> String {
+            match (record.file(), record.line()) {
+                (Some(file), Some(line)) => format!("{}:{}", file, line),
+                _ => String::new(),
+            }
+        }
+
+        #[allow(clippy::indexing_slicing)]
+        fn format_message(record: &Record<'_>) -> String {
+            let mut msg = record
+                .args()
+                .to_string()
+                .replace("\r", "\\r")
+                .replace("\n", "\\n");
+            if msg.len() > 128 {
+                msg.truncate(127);
+                msg.push('\u{2026}');
+            }
+            color(record, msg)
+        }
+
+        // Initialize the log crate/macros based on RUST_LOG env value
+        let logger = env_logger::builder()
+            .is_test(true)
+            .format(move |buf, record| {
+                writeln!(
+                    buf,
+                    "[{} {}{} {}] \u{25ef} [{}] {}",
+                    format_ts(),
+                    format_level(record),
+                    format_module(record),
+                    format_kv(record),
+                    format_line(record),
+                    format_message(record),
+                )
+            })
+            .build();
+
+        match async_log::Logger::wrap(logger, || 12).start(log::LevelFilter::Trace) {
             Ok(_) => {
                 // Log initialisation OK
             }
