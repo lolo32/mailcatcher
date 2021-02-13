@@ -211,7 +211,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
     /// process client input, and return the command used
     #[allow(clippy::indexing_slicing)]
     pub fn process_line(&self, command_line: Cow<'a, str>) -> Command<'a> {
-        // log::debug!("texte: {}", line);
+        log::debug!("texte: {}", command_line);
         if !self.receive_data {
             match command_line.to_lowercase().as_str() {
                 "data" => Command::DataStart,
@@ -302,6 +302,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
     /// Process command and value
     pub async fn process_command(&mut self, command: &Command<'a>) -> crate::Result<Option<Mail>> {
+        log::debug!("{:?}", command);
         #[allow(clippy::pattern_type_mismatch, clippy::unimplemented)]
         match command {
             // Check if command is valid at this time of speaking
@@ -423,6 +424,7 @@ mod tests {
 
     use super::*;
     use async_std::channel::Receiver;
+    use futures::TryFutureExt;
 
     async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
         let stream: TcpStream = TcpStream::connect(format!("localhost:{}", port)).await?;
@@ -435,54 +437,59 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
-    fn test_smtp() -> crate::Result<()> {
+    fn invalid_smtp_commands() -> crate::Result<()> {
         const MY_NAME: &str = "UnitTest";
 
-        async fn the_test(
-            port: u16,
-            my_name: &str,
-            mut receiver: Receiver<Mail>,
-        ) -> crate::Result<()> {
+        async fn the_test(port: u16, my_name: &str) -> crate::Result<()> {
             let (mut lines, mut stream) = connect_to(port).await?;
 
             // Check if greeting is sent by the server
+            log::trace!("First connecting");
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line[..(4 + my_name.len())], format!("220 {}", my_name));
 
             // --------------------------
             // Nothing is accepted but Helo, Ehlo, Reset or Noop
+            log::trace!("INVALID");
             stream.write_all(b"INVALID\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "502 Command not implemented".to_owned());
 
+            log::trace!("MAIL FROM first");
             stream
                 .write_all(b"MAIL FROM:<test@example.org>\r\n")
                 .await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
+            log::trace!("RCPT TO first");
             stream.write_all(b"RCPT TO:<test@example.org>\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
+            log::trace!("DATA first");
             stream.write_all(b"DATA\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
+            log::trace!("NOOP");
             stream.write_all(b"NOOP\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "250 OK".to_owned());
 
+            log::trace!("NOOP with message");
             stream
                 .write_all(b"NOOP ignore the end of the line\r\n")
                 .await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "250 OK".to_owned());
 
+            log::trace!("RESET without upcase");
             stream.write_all(b"rSET\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "250 OK".to_owned());
 
+            log::trace!("HELO");
             stream.write_all(b"HELO client\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, format!("250 {}", my_name));
@@ -490,20 +497,62 @@ mod tests {
             drop(lines);
             drop(stream);
 
+            Ok(())
+        }
+
+        crate::test::log_init();
+
+        let port = {
+            let tcp: TcpListener = TcpListener::bind("localhost:0")?;
+            let port: u16 = tcp.local_addr()?.port();
+            drop(tcp);
+            port
+        };
+
+        let (sender, _receiver): crate::Channel<Mail> = bounded(1);
+
+        task::block_on(
+            async_std::io::timeout(Duration::from_millis(5000), async {
+                let job = serve(port, MY_NAME, sender, false)
+                    .race(the_test(port, MY_NAME))
+                    .await;
+
+                assert!(job.is_ok());
+
+                Ok(())
+            })
+            .map_err(|e| format!("{:?}", e).into()),
+        )
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
+    fn valid_smtp_commands() -> crate::Result<()> {
+        const MY_NAME: &str = "UnitTest";
+
+        async fn the_test(
+            port: u16,
+            my_name: &str,
+            mut receiver: Receiver<Mail>,
+        ) -> crate::Result<()> {
             // --------------------------
             // Second try as ehlo
+            log::trace!("Second connection");
             let (mut lines, mut stream) = connect_to(port).await?;
 
             // Greeting
+            log::trace!("waiting greeting");
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, format!("220 {} ESMTP", my_name));
 
+            log::trace!("EHLO");
             stream.write_all(b"eHLO client\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, format!("250 {}", my_name));
 
             // --------------------------
             // From
+            log::trace!("MAIL FROM");
             stream
                 .write_all(b"mAiL frOM:<from@example.org>\r\n")
                 .await?;
@@ -512,20 +561,24 @@ mod tests {
 
             // --------------------------
             // To
+            log::trace!("RCPT TO 1");
             stream.write_all(b"RCpT tO:<to@example.net>\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "250 OK".to_owned());
 
+            log::trace!("RCPT TO 2");
             stream.write_all(b"rcpt TO:<to@example.org>\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "250 OK".to_owned());
 
             // --------------------------
             // Begin data
+            log::trace!("DATA");
             stream.write_all(b"DATA\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(&line[..4], "354 ");
 
+            log::trace!("Mail content");
             stream
                 .write_all(
                     b"From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;\r\n\
@@ -539,15 +592,18 @@ Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
 .\r\n",
                 )
                 .await?;
+            log::trace!("End of mail content");
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "250 OK");
 
             // --------------------------
             // Check the received mail
+            log::trace!("Mail received");
             let mail: Mail = receiver.next().await.ok_or("no next line")?;
 
             // --------------------------
             // Close connection
+            log::trace!("QUIT");
             stream.write_all(b"quit\r\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(
@@ -555,6 +611,7 @@ Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
                 format!("221 {}", my_name)
             );
 
+            log::trace!("Check mail received");
             let raw = mail.get_data(&Type::Raw).ok_or("no next line")?;
             assert_eq!(
                 raw,
@@ -582,9 +639,16 @@ This is the content of this mail... but it says nothing now.\r\n"
         let (sender, receiver): crate::Channel<Mail> = bounded(1);
 
         task::block_on(
-            serve(port, MY_NAME, sender, false)
-                .try_race(the_test(port, MY_NAME, receiver))
-                .timeout(Duration::from_millis(500)),
-        )?
+            async_std::io::timeout(Duration::from_millis(5000), async {
+                let job = serve(port, MY_NAME, sender, false)
+                    .race(the_test(port, MY_NAME, receiver))
+                    .await;
+
+                assert!(job.is_ok());
+
+                Ok(())
+            })
+            .map_err(|e| format!("{:?}", e).into()),
+        )
     }
 }
