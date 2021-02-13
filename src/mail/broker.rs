@@ -78,18 +78,6 @@ mod tests {
 
     use super::*;
 
-    fn init() {
-        // Initialize the log crate/macros based on RUST_LOG env value
-        match env_logger::try_init() {
-            Ok(_) => {
-                // Log initialisation OK
-            }
-            Err(_e) => {
-                // Already initialized
-            }
-        }
-    }
-
     #[test]
     fn test_mail_broker() -> crate::Result<()> {
         #[allow(clippy::indexing_slicing, clippy::panic)]
@@ -211,7 +199,7 @@ mod tests {
             Ok(())
         }
 
-        init();
+        crate::test::log_init();
 
         let (sender, receiver): crate::Channel<MailEvt> = channel::unbounded();
 

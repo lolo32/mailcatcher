@@ -60,21 +60,9 @@ impl From<SseEvt> for SseData<'_> {
 mod tests {
     use super::*;
 
-    fn init() {
-        // Initialize the log crate/macros based on RUST_LOG env value
-        match env_logger::try_init() {
-            Ok(_) => {
-                // Log initialisation OK
-            }
-            Err(_e) => {
-                // Already initialized
-            }
-        }
-    }
-
     #[test]
     fn convert_to_sse_data() {
-        init();
+        crate::test::log_init();
 
         let sse_evt: SseEvt = SseEvt::Ping;
         let data: SseData = sse_evt.into();

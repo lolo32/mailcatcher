@@ -433,18 +433,6 @@ mod tests {
         Ok((lines, stream))
     }
 
-    fn init() {
-        // Initialize the log crate/macros based on RUST_LOG env value
-        match env_logger::try_init() {
-            Ok(_) => {
-                // Log initialisation OK
-            }
-            Err(_e) => {
-                // Already initialized
-            }
-        }
-    }
-
     #[test]
     #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
     fn test_smtp() -> crate::Result<()> {
@@ -582,7 +570,7 @@ This is the content of this mail... but it says nothing now.\r\n"
             Ok(())
         }
 
-        init();
+        crate::test::log_init();
 
         let port = {
             let tcp: TcpListener = TcpListener::bind("localhost:0")?;

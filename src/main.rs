@@ -202,3 +202,20 @@ async fn main_fut(opt: Opt) -> Result<()> {
 
     unreachable!()
 }
+
+#[cfg(test)]
+mod test {
+    pub fn log_init() {
+        // Initialize the log crate/macros based on RUST_LOG env value
+        let logger = femme::pretty::Logger::new();
+
+        match async_log::Logger::wrap(logger, || 12).start(log::LevelFilter::Debug) {
+            Ok(_) => {
+                // Log initialisation OK
+            }
+            Err(_e) => {
+                // Already initialized
+            }
+        }
+    }
+}

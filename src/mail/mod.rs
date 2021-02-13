@@ -325,22 +325,10 @@ Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=
 
 This is the content of this mail... but it says nothing now.";
 
-    fn init() {
-        // Initialize the log crate/macros based on RUST_LOG env value
-        match env_logger::try_init() {
-            Ok(_) => {
-                // Log initialisation OK
-            }
-            Err(_e) => {
-                // Already initialized
-            }
-        }
-    }
-
     #[test]
     #[allow(clippy::indexing_slicing)]
     fn split_headers_body() {
-        init();
+        crate::test::log_init();
 
         let mail: Mail = Mail::new("from@example.com", &["to@example.com".into()], DATA_SIMPLE);
 
@@ -354,7 +342,7 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn test_getting_datetime() {
-        init();
+        crate::test::log_init();
 
         let mail: Mail = Mail::new("", &[], DATA_SIMPLE);
 
@@ -367,7 +355,7 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn get_text() {
-        init();
+        crate::test::log_init();
 
         let mail: Mail = Mail::new("", &[], DATA_SIMPLE);
 
@@ -383,7 +371,7 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn summary_is_json() {
-        init();
+        crate::test::log_init();
 
         let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_SIMPLE);
         let summary: String = mail.summary().to_string();
@@ -400,7 +388,7 @@ This is the content of this mail... but it says nothing now.";
     #[test]
     #[allow(clippy::indexing_slicing)]
     fn multiline_header_content_and_humanized() {
-        init();
+        crate::test::log_init();
 
         let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
         let subject_raw: Vec<String> =
@@ -423,7 +411,7 @@ This is the content of this mail... but it says nothing now.";
 
     #[test]
     fn get_data() {
-        init();
+        crate::test::log_init();
 
         let mail: Mail = Mail::new("from@example.org", &["to@example.net".into()], DATA_COMPLEX);
 

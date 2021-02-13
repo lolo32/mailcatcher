@@ -37,7 +37,7 @@ pub fn send(req: &Request, name: &str, mime: Mime) -> tide::Result<Response> {
             })?;
         Cow::Owned(uncompressed)
     };
-    log::debug!("content_len: {:?}", content.len());
+    log::debug!("content_len: {}", content.len());
 
     // Build the Response
     let response: ResponseBuilder = Response::builder(StatusCode::Ok)
@@ -47,7 +47,7 @@ pub fn send(req: &Request, name: &str, mime: Mime) -> tide::Result<Response> {
         .header(headers::CONTENT_LENGTH, content.len().to_string());
     // If compression enabled, add the header to response
     let response: ResponseBuilder = if compressed {
-        log::debug! {"using deflate compression output"};
+        log::debug!("using deflate compression output");
         response.header(headers::CONTENT_ENCODING, "deflate")
     } else {
         response
@@ -71,18 +71,6 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn init() {
-        // Initialize the log crate/macros based on RUST_LOG env value
-        match env_logger::try_init() {
-            Ok(_) => {
-                // Log initialisation OK
-            }
-            Err(_e) => {
-                // Already initialized
-            }
-        }
-    }
-
     fn get_asset_path() -> PathBuf {
         Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| {
             env::current_dir()
@@ -97,7 +85,7 @@ mod tests {
     #[test]
     #[allow(clippy::indexing_slicing, clippy::panic_in_result_fn)]
     fn compressed() -> crate::Result<()> {
-        init();
+        crate::test::log_init();
 
         let mut request = Request::new(Method::Get, "http://localhost/");
         let _ = request.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
@@ -132,7 +120,7 @@ mod tests {
     #[test]
     #[allow(clippy::indexing_slicing, clippy::panic_in_result_fn)]
     fn uncompressed() -> crate::Result<()> {
-        init();
+        crate::test::log_init();
 
         let request = Request::new(Method::Get, "http://localhost/");
         let response = send(&request, "home.html", mime::HTML)?;
