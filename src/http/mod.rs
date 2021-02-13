@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines, clippy::panic)]
+    #[allow(clippy::panic)]
     fn test_assets_routes() -> crate::Result<()> {
         async fn the_test() -> crate::Result<()> {
             let Init { app, .. } = init().await?;
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines, clippy::panic)]
+    #[allow(clippy::panic)]
     fn test_deflate_routes() -> crate::Result<()> {
         async fn the_test() -> crate::Result<()> {
             let Init { app, .. } = init().await?;
@@ -296,8 +296,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines, clippy::panic)]
-    fn test_mails_routes() -> crate::Result<()> {
+    #[allow(clippy::panic)]
+    fn all_mails_route() -> crate::Result<()> {
         async fn the_test() -> crate::Result<()> {
             let Init {
                 app,
@@ -314,75 +314,100 @@ mod tests {
                 tx_mail_broker.send(MailEvt::NewMail(mail)).await?;
             }
             let _mail_broker_task = spawn_task_and_swallow_log_errors(
-                "test_routes_mails".to_owned(),
+                "test_routes_all_mails".to_owned(),
                 mail_broker(rx_mail_broker),
             );
 
             // Get all mails
-            {
-                let request: Request =
-                    Request::new(Method::Get, Url::parse("http://localhost/mails")?);
-                let mut response: Response = app.respond(request).await?;
-                assert_eq!(
-                    response
-                        .header(headers::CONTENT_TYPE)
-                        .ok_or("Content-Type header unavailable")?,
-                    &mime::JSON.to_string()
-                );
-                let mut mails: Vec<MailSummary> = mails
-                    .iter()
-                    .map(|mail| {
-                        serde_json::from_value::<MailSummary>(mail.summary())
-                            .map_err(|e| format!("{:?}", e))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                mails.sort_by(|a, b| a.id.cmp(&b.id));
-                let txt: String = response.body_string().await?;
-                let mut txt: Vec<MailSummary> = serde_json::from_str(&txt)?;
-                txt.sort_by(|a, b| a.id.cmp(&b.id));
-                assert_eq!(mails, txt);
+            let request: Request = Request::new(Method::Get, Url::parse("http://localhost/mails")?);
+            let mut response: Response = app.respond(request).await?;
+            assert_eq!(
+                response
+                    .header(headers::CONTENT_TYPE)
+                    .ok_or("Content-Type header unavailable")?,
+                &mime::JSON.to_string()
+            );
+            let mut mails: Vec<MailSummary> = mails
+                .iter()
+                .map(|mail| {
+                    serde_json::from_value::<MailSummary>(mail.summary())
+                        .map_err(|e| format!("{:?}", e))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            mails.sort_by(|a, b| a.id.cmp(&b.id));
+            let txt: String = response.body_string().await?;
+            let mut txt: Vec<MailSummary> = serde_json::from_str(&txt)?;
+            txt.sort_by(|a, b| a.id.cmp(&b.id));
+            assert_eq!(mails, txt);
+
+            Ok(())
+        }
+
+        task::block_on(the_test())
+    }
+
+    #[test]
+    #[allow(clippy::panic)]
+    fn one_mail_route() -> crate::Result<()> {
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct MailAll {
+            headers: Vec<String>,
+            raw: Vec<String>,
+            data: String,
+        }
+
+        async fn the_test() -> crate::Result<()> {
+            let Init {
+                app,
+                tx_mail_broker,
+                rx_mail_broker,
+                ..
+            } = init().await?;
+
+            // Provide some mails
+            let mut mails: Vec<Mail> = Vec::new();
+            for _ in 0..10 {
+                let mail: Mail = Mail::fake();
+                mails.push(mail.clone());
+                tx_mail_broker.send(MailEvt::NewMail(mail)).await?;
             }
+            let _mail_broker_task = spawn_task_and_swallow_log_errors(
+                "test_routes_onr_mail".to_owned(),
+                mail_broker(rx_mail_broker),
+            );
 
             // Get one mail
-            {
-                #[derive(Debug, Serialize, Deserialize, PartialEq)]
-                struct MailAll {
-                    headers: Vec<String>,
-                    raw: Vec<String>,
-                    data: String,
-                }
-                #[allow(clippy::indexing_slicing)]
-                let mail: &Mail = &mails[0];
+            #[allow(clippy::indexing_slicing)]
+            let mail: &Mail = &mails[0];
 
-                // Non existent mail id
-                let request: Request =
-                    Request::new(Method::Get, Url::parse("http://localhost/mail/1")?);
-                let response: Response = app.respond(request).await?;
-                assert_eq!(response.status(), StatusCode::NotFound);
+            // Non existent mail id
+            let request: Request =
+                Request::new(Method::Get, Url::parse("http://localhost/mail/1")?);
+            let response: Response = app.respond(request).await?;
+            assert_eq!(response.status(), StatusCode::NotFound);
 
-                // Valid mail id
-                let request: Request = Request::new(
-                    Method::Get,
-                    Url::parse(&format!(
-                        "http://localhost/mail/{}",
-                        mail.get_id().to_string()
-                    ))?,
-                );
-                let mut response: Response = app.respond(request).await?;
-                assert_eq!(
-                    response
-                        .header(headers::CONTENT_TYPE)
-                        .ok_or("Content-Type header unavailable")?,
-                    &mime::JSON.to_string()
-                );
-                let mail: MailAll = serde_json::from_value(json!({
-                    "headers": mail.get_headers(&HeaderRepresentation::Humanized),
-                    "raw": mail.get_headers(&HeaderRepresentation::Raw),
-                    "data": mail.get_text().ok_or("data mail empty")?.clone(),
-                }))?;
-                let txt: MailAll = serde_json::from_str(&response.body_string().await?)?;
-                assert_eq!(mail, txt);
-            }
+            // Valid mail id
+            let request: Request = Request::new(
+                Method::Get,
+                Url::parse(&format!(
+                    "http://localhost/mail/{}",
+                    mail.get_id().to_string()
+                ))?,
+            );
+            let mut response: Response = app.respond(request).await?;
+            assert_eq!(
+                response
+                    .header(headers::CONTENT_TYPE)
+                    .ok_or("Content-Type header unavailable")?,
+                &mime::JSON.to_string()
+            );
+            let mail: MailAll = serde_json::from_value(json!({
+                "headers": mail.get_headers(&HeaderRepresentation::Humanized),
+                "raw": mail.get_headers(&HeaderRepresentation::Raw),
+                "data": mail.get_text().ok_or("data mail empty")?.clone(),
+            }))?;
+            let txt: MailAll = serde_json::from_str(&response.body_string().await?)?;
+            assert_eq!(mail, txt);
 
             Ok(())
         }
@@ -392,7 +417,7 @@ mod tests {
 
     #[cfg(feature = "faking")]
     #[test]
-    #[allow(clippy::too_many_lines, clippy::panic)]
+    #[allow(clippy::panic)]
     fn test_faking_routes() -> crate::Result<()> {
         async fn the_test() -> crate::Result<()> {
             let Init {
