@@ -21,54 +21,74 @@ pub enum MailEvt {
     RemoveAll(Sender<Ulid>),
 }
 
-/// Mail storage broker. All communication is from the `Receiver` stream
-pub async fn process(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
-    // This is the mail tank
-    let mut mails: fnv::FnvHashMap<Ulid, Mail> = HashMap::default();
+/// Mail tank broker
+pub struct MailTank {
+    /// Mails tank
+    mails: fnv::FnvHashMap<Ulid, Mail>,
+    /// Channel to access the tank from the outside
+    receiver: Receiver<MailEvt>,
+}
 
-    let _mail_processing_task =
-        spawn_task_and_swallow_log_errors("Mail broker".to_owned(), async move {
-            loop {
-                if let Some(evt) = receiver.next().await {
-                    log::trace!("processing MailEvt: {:?}", evt);
-                    match evt {
-                        // A new mail, add it to the list
-                        MailEvt::NewMail(mail) => {
-                            let _ = mails.insert(mail.get_id(), mail.clone());
-                        }
-                        // Want to retrieve the mail from this id
-                        MailEvt::GetMail(sender, id) => {
-                            sender.send(mails.get(&id).cloned()).await?;
-                            drop(sender);
-                        }
-                        // Want to retrieve all mails
-                        MailEvt::GetAll(sender) => {
-                            for mail in mails.values().cloned() {
-                                sender.send(mail).await?
-                            }
-                            drop(sender);
-                        }
-                        // Remove a mail by the id
-                        MailEvt::Remove(sender, id) => {
-                            sender.send(mails.remove(&id).map(|m| m.get_id())).await?;
-                            drop(sender);
-                        }
-                        // Remove all mails
-                        MailEvt::RemoveAll(sender) => {
-                            let ids: Vec<Ulid> = mails.keys().cloned().collect();
+impl MailTank {
+    /// Instantiate a new broker
+    pub fn new(receiver: Receiver<MailEvt>) -> Self {
+        Self {
+            mails: HashMap::default(),
+            receiver,
+        }
+    }
 
-                            for id in ids {
-                                let _ = mails.remove(&id);
-                                sender.send(id).await?;
-                            }
-                            drop(sender);
+    /// Spawn an async task managing the mails tank
+    pub async fn task(self, task_name: &str) -> crate::Result<()> {
+        let _mail_tank_task =
+            spawn_task_and_swallow_log_errors(task_name.to_owned(), self.process())?;
+
+        Ok(())
+    }
+
+    /// Mail storage broker. All communication is from the `Receiver` stream
+    pub async fn process(mut self) -> crate::Result<()> {
+        loop {
+            if let Some(evt) = self.receiver.next().await {
+                log::trace!("processing MailEvt: {:?}", evt);
+                match evt {
+                    // A new mail, add it to the list
+                    MailEvt::NewMail(mail) => {
+                        let _ = self.mails.insert(mail.get_id(), mail.clone());
+                    }
+                    // Want to retrieve the mail from this id
+                    MailEvt::GetMail(sender, id) => {
+                        sender.send(self.mails.get(&id).cloned()).await?;
+                        drop(sender);
+                    }
+                    // Want to retrieve all mails
+                    MailEvt::GetAll(sender) => {
+                        for mail in self.mails.values().cloned() {
+                            sender.send(mail).await?
                         }
+                        drop(sender);
+                    }
+                    // Remove a mail by the id
+                    MailEvt::Remove(sender, id) => {
+                        sender
+                            .send(self.mails.remove(&id).map(|m| m.get_id()))
+                            .await?;
+                        drop(sender);
+                    }
+                    // Remove all mails
+                    MailEvt::RemoveAll(sender) => {
+                        let ids: Vec<Ulid> = self.mails.keys().cloned().collect();
+
+                        for id in ids {
+                            let _ = self.mails.remove(&id);
+                            sender.send(id).await?;
+                        }
+                        drop(sender);
                     }
                 }
             }
-        })?;
-
-    Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -202,9 +222,9 @@ mod tests {
 
         let (sender, receiver): crate::Channel<MailEvt> = channel::unbounded();
 
-        crate::test::with_timeout(5_000, process(receiver).try_join(the_test(sender))).map(|a| {
-            assert_eq!(a, ((), ()));
-            Ok(())
-        })?
+        crate::test::with_timeout(
+            5_000,
+            MailTank::new(receiver).process().race(the_test(sender)),
+        )
     }
 }

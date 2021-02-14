@@ -151,7 +151,7 @@ mod tests {
         StatusCode,
     };
 
-    use crate::mail::{broker::process as mail_broker, HeaderRepresentation};
+    use crate::mail::{broker::MailTank, HeaderRepresentation};
 
     use super::*;
 
@@ -167,6 +167,7 @@ mod tests {
 
     struct Init {
         app: Server<State<SseEvt>>,
+        mails: Vec<Mail>,
         tx_mail_broker: Sender<MailEvt>,
         rx_mail_broker: Receiver<MailEvt>,
         tx_new_mail: Sender<Mail>,
@@ -178,9 +179,17 @@ mod tests {
         crate::test::log_init();
 
         let (tx_mail_broker, rx_mail_broker): crate::Channel<MailEvt> = channel::unbounded();
-        let (tx_new_mail, rx_new_mail): crate::Channel<Mail> = channel::bounded(1);
+        let (tx_new_mail, rx_new_mail): crate::Channel<Mail> = channel::unbounded();
         #[cfg(feature = "faking")]
         let (tx_mail_from_faking, rx_mail_from_faking): crate::Channel<Mail> = channel::unbounded();
+
+        // Provide some mails
+        let mut mails: Vec<Mail> = Vec::new();
+        for _ in 0..10 {
+            let mail: Mail = Mail::fake();
+            mails.push(mail.clone());
+            tx_mail_broker.send(MailEvt::NewMail(mail)).await?;
+        }
 
         // Init the HTTP side
         let params: Params = Params {
@@ -192,6 +201,7 @@ mod tests {
 
         Ok(Init {
             app: super::init(params).await?,
+            mails,
             tx_mail_broker,
             rx_mail_broker,
             tx_new_mail,
@@ -301,22 +311,12 @@ mod tests {
         async fn the_test() -> crate::Result<()> {
             let Init {
                 app,
-                tx_mail_broker,
+                mails,
                 rx_mail_broker,
                 ..
             } = init().await?;
 
-            // Provide some mails
-            let mut mails: Vec<Mail> = Vec::new();
-            for _ in 0..10 {
-                let mail: Mail = Mail::fake();
-                mails.push(mail.clone());
-                tx_mail_broker.send(MailEvt::NewMail(mail)).await?;
-            }
-            let _mail_broker_task = spawn_task_and_swallow_log_errors(
-                "test_routes_all_mails".to_owned(),
-                mail_broker(rx_mail_broker),
-            );
+            let _mail_broker_task = MailTank::new(rx_mail_broker).task("test_routes_all_mails");
 
             // Get all mails
             let request: Request = Request::new(Method::Get, Url::parse("http://localhost/mails")?);
@@ -359,22 +359,13 @@ mod tests {
         async fn the_test() -> crate::Result<()> {
             let Init {
                 app,
-                tx_mail_broker,
+                mails,
                 rx_mail_broker,
                 ..
             } = init().await?;
 
             // Provide some mails
-            let mut mails: Vec<Mail> = Vec::new();
-            for _ in 0..10 {
-                let mail: Mail = Mail::fake();
-                mails.push(mail.clone());
-                tx_mail_broker.send(MailEvt::NewMail(mail)).await?;
-            }
-            let _mail_broker_task = spawn_task_and_swallow_log_errors(
-                "test_routes_onr_mail".to_owned(),
-                mail_broker(rx_mail_broker),
-            );
+            let _mail_broker_task = MailTank::new(rx_mail_broker).task("test_routes_one_mail");
 
             // Get one mail
             #[allow(clippy::indexing_slicing)]

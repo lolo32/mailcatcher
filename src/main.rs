@@ -79,7 +79,7 @@ use tide::Server;
 use crate::{
     http::{bind as bind_http, sse_evt::SseEvt, Params, State},
     mail::{
-        broker::{process as mail_broker, MailEvt},
+        broker::{MailEvt, MailTank},
         Mail,
     },
     utils::spawn_task_and_swallow_log_errors,
@@ -152,7 +152,7 @@ async fn main_fut(opt: Opt) -> Result<()> {
     let (tx_mail_from_smtp, mut rx_mail_from_smtp): Channel<Mail> = channel::unbounded();
     let (tx_mail_broker, rx_mail_broker): Channel<MailEvt> = channel::unbounded();
 
-    let mail_broker = mail_broker(rx_mail_broker);
+    let mail_broker = MailTank::new(rx_mail_broker);
 
     let (tx_new_mail, rx_new_mail): Channel<Mail> = channel::unbounded();
     let tx_http_new_mail: Sender<MailEvt> = tx_mail_broker.clone();
@@ -197,7 +197,7 @@ async fn main_fut(opt: Opt) -> Result<()> {
 
     // Waiting for both to complete
     s.try_join(bind_http(http_app, opt.http))
-        .try_join(mail_broker)
+        .try_join(mail_broker.process())
         .await?;
 
     unreachable!()
