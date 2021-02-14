@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::panic)]
-    fn all_mails_route() -> crate::Result<()> {
+    fn all_mails_route() -> std::io::Result<()> {
         async fn the_test() -> crate::Result<()> {
             let Init {
                 app,
@@ -343,12 +343,12 @@ mod tests {
             Ok(())
         }
 
-        task::block_on(the_test())
+        crate::test::with_timeout(5_000, the_test())
     }
 
     #[test]
     #[allow(clippy::panic)]
-    fn one_mail_route() -> crate::Result<()> {
+    fn one_mail_route() -> std::io::Result<()> {
         #[derive(Debug, Serialize, Deserialize, PartialEq)]
         struct MailAll {
             headers: Vec<String>,
@@ -412,13 +412,13 @@ mod tests {
             Ok(())
         }
 
-        task::block_on(the_test())
+        crate::test::with_timeout(5_000, the_test())
     }
 
     #[cfg(feature = "faking")]
     #[test]
     #[allow(clippy::panic)]
-    fn test_faking_routes() -> crate::Result<()> {
+    fn test_faking_routes() -> std::io::Result<()> {
         async fn the_test() -> crate::Result<()> {
             let Init {
                 app,
@@ -476,6 +476,6 @@ mod tests {
             Ok(())
         }
 
-        task::block_on(the_test())
+        crate::test::with_timeout(5_000, the_test())
     }
 }

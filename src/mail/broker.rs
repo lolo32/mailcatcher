@@ -73,13 +73,12 @@ pub async fn process(mut receiver: Receiver<MailEvt>) -> crate::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use async_std::{channel, prelude::FutureExt, task};
-    use std::time::Duration;
+    use async_std::{channel, prelude::FutureExt};
 
     use super::*;
 
     #[test]
-    fn test_mail_broker() -> crate::Result<()> {
+    fn mail_broker() -> std::io::Result<()> {
         #[allow(clippy::indexing_slicing, clippy::panic)]
         async fn the_test(sender: Sender<MailEvt>) -> crate::Result<()> {
             // Mails pull to compare

@@ -149,12 +149,12 @@ async fn main_fut(opt: Opt) -> Result<()> {
     );
 
     // Channels used to notify a new mail arrived in SMTP side to HTTP side
-    let (tx_mail_from_smtp, mut rx_mail_from_smtp): Channel<Mail> = channel::bounded(1);
+    let (tx_mail_from_smtp, mut rx_mail_from_smtp): Channel<Mail> = channel::unbounded();
     let (tx_mail_broker, rx_mail_broker): Channel<MailEvt> = channel::unbounded();
 
     let mail_broker = mail_broker(rx_mail_broker);
 
-    let (tx_new_mail, rx_new_mail): Channel<Mail> = channel::bounded(1);
+    let (tx_new_mail, rx_new_mail): Channel<Mail> = channel::unbounded();
     let tx_http_new_mail: Sender<MailEvt> = tx_mail_broker.clone();
     let http_params: Params = Params {
         mail_broker: tx_mail_broker,
@@ -208,9 +208,11 @@ mod test {
     //! Pretty print logs.
 
     use console::style;
+    use futures::TryFutureExt;
     use log::{kv, Level, Record};
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
 
+    /// Initialize logging for the tests
     pub fn log_init() {
         use std::io::Write;
 
@@ -310,5 +312,16 @@ mod test {
                 // Already initialized
             }
         }
+    }
+
+    /// Timeout the tests
+    pub fn with_timeout<F>(millis: u64, f: F) -> Result<(), std::io::Error>
+    where
+        F: std::future::Future<Output = crate::Result<()>>,
+    {
+        async_std::task::block_on(async_std::io::timeout(
+            Duration::from_millis(millis),
+            f.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e))),
+        ))
     }
 }

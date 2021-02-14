@@ -415,16 +415,15 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
 #[cfg(test)]
 mod tests {
-    use std::{net::TcpListener, time::Duration};
+    use std::net::TcpListener;
 
-    use async_std::{channel::bounded, net::TcpStream, prelude::FutureExt, task};
+    use async_std::{channel::bounded, net::TcpStream, prelude::FutureExt};
     use futures::io::Lines;
 
     use crate::mail::Type;
 
     use super::*;
     use async_std::channel::Receiver;
-    use futures::TryFutureExt;
 
     async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
         let stream: TcpStream = TcpStream::connect(format!("localhost:{}", port)).await?;
@@ -437,7 +436,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
-    fn invalid_smtp_commands() -> crate::Result<()> {
+    fn invalid_smtp_commands() -> std::io::Result<()> {
         const MY_NAME: &str = "UnitTest";
 
         async fn the_test(port: u16, my_name: &str) -> crate::Result<()> {
@@ -511,23 +510,15 @@ mod tests {
 
         let (sender, _receiver): crate::Channel<Mail> = bounded(1);
 
-        task::block_on(
-            async_std::io::timeout(Duration::from_millis(5000), async {
-                let job = serve(port, MY_NAME, sender, false)
-                    .race(the_test(port, MY_NAME))
-                    .await;
-
-                assert!(job.is_ok());
-
-                Ok(())
-            })
-            .map_err(|e| format!("{:?}", e).into()),
+        crate::test::with_timeout(
+            5_000,
+            serve(port, MY_NAME, sender, false).race(the_test(port, MY_NAME)),
         )
     }
 
     #[test]
     #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
-    fn valid_smtp_commands() -> crate::Result<()> {
+    fn valid_smtp_commands() -> std::io::Result<()> {
         const MY_NAME: &str = "UnitTest";
 
         async fn the_test(
@@ -638,17 +629,9 @@ This is the content of this mail... but it says nothing now.\r\n"
 
         let (sender, receiver): crate::Channel<Mail> = bounded(1);
 
-        task::block_on(
-            async_std::io::timeout(Duration::from_millis(5000), async {
-                let job = serve(port, MY_NAME, sender, false)
-                    .race(the_test(port, MY_NAME, receiver))
-                    .await;
-
-                assert!(job.is_ok());
-
-                Ok(())
-            })
-            .map_err(|e| format!("{:?}", e).into()),
+        crate::test::with_timeout(
+            5_000,
+            serve(port, MY_NAME, sender, false).race(the_test(port, MY_NAME, receiver)),
         )
     }
 }
