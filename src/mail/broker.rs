@@ -4,7 +4,7 @@ use async_std::channel::{Receiver, Sender};
 use futures::StreamExt;
 use ulid::Ulid;
 
-use crate::{mail::Mail, utils::spawn_task_and_swallow_log_errors};
+use crate::mail::Mail;
 
 /// Mail events sent from the SMTP (for `NewMail`) or HTTP side for the other from streams
 #[derive(Clone, Debug)]
@@ -36,14 +36,6 @@ impl MailTank {
             mails: HashMap::default(),
             receiver,
         }
-    }
-
-    /// Spawn an async task managing the mails tank
-    pub async fn task(self, task_name: &str) -> crate::Result<()> {
-        let _mail_tank_task =
-            spawn_task_and_swallow_log_errors(task_name.to_owned(), self.process())?;
-
-        Ok(())
     }
 
     /// Mail storage broker. All communication is from the `Receiver` stream

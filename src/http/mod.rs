@@ -144,6 +144,7 @@ mod tests {
     use async_std::{
         channel,
         path::{Path, PathBuf},
+        prelude::FutureExt,
     };
     use tide::{
         http::{headers, mime, Method, Request, Response, Url},
@@ -308,16 +309,7 @@ mod tests {
     #[test]
     #[allow(clippy::panic)]
     fn all_mails_route() -> std::io::Result<()> {
-        async fn the_test() -> crate::Result<()> {
-            let Init {
-                app,
-                mails,
-                rx_mail_broker,
-                ..
-            } = init().await?;
-
-            let _mail_broker_task = MailTank::new(rx_mail_broker).task("test_routes_all_mails");
-
+        async fn the_test(app: Server<State<SseEvt>>, mails: Vec<Mail>) -> crate::Result<()> {
             // Get all mails
             let request: Request = Request::new(Method::Get, Url::parse("http://localhost/mails")?);
             let mut response: Response = app.respond(request).await?;
@@ -343,7 +335,16 @@ mod tests {
             Ok(())
         }
 
-        crate::test::with_timeout(5_000, the_test())
+        let Init {
+            app,
+            mails,
+            rx_mail_broker,
+            ..
+        } = task::block_on(init()).expect("Init");
+
+        let mail_broker = MailTank::new(rx_mail_broker);
+
+        crate::test::with_timeout(5_000, mail_broker.process().race(the_test(app, mails)))
     }
 
     #[test]
@@ -356,17 +357,7 @@ mod tests {
             data: String,
         }
 
-        async fn the_test() -> crate::Result<()> {
-            let Init {
-                app,
-                mails,
-                rx_mail_broker,
-                ..
-            } = init().await?;
-
-            // Provide some mails
-            let _mail_broker_task = MailTank::new(rx_mail_broker).task("test_routes_one_mail");
-
+        async fn the_test(app: Server<State<SseEvt>>, mails: Vec<Mail>) -> crate::Result<()> {
             // Get one mail
             #[allow(clippy::indexing_slicing)]
             let mail: &Mail = &mails[0];
@@ -403,7 +394,16 @@ mod tests {
             Ok(())
         }
 
-        crate::test::with_timeout(5_000, the_test())
+        let Init {
+            app,
+            mails,
+            rx_mail_broker,
+            ..
+        } = task::block_on(init()).expect("Init");
+
+        let mail_broker = MailTank::new(rx_mail_broker);
+
+        crate::test::with_timeout(5_000, mail_broker.process().race(the_test(app, mails)))
     }
 
     #[cfg(feature = "faking")]
