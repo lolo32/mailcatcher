@@ -315,9 +315,9 @@ mod test {
     }
 
     /// Timeout the tests
-    pub fn with_timeout<F>(millis: u64, f: F) -> Result<(), std::io::Error>
+    pub fn with_timeout<F, T>(millis: u64, f: F) -> Result<T, std::io::Error>
     where
-        F: std::future::Future<Output = crate::Result<()>>,
+        F: std::future::Future<Output = crate::Result<T>>,
     {
         async_std::task::block_on(async_std::io::timeout(
             Duration::from_millis(millis),

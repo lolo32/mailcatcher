@@ -202,13 +202,9 @@ mod tests {
 
         let (sender, receiver): crate::Channel<MailEvt> = channel::unbounded();
 
-        task::block_on(
-            process(receiver)
-                .try_join(the_test(sender))
-                .timeout(Duration::from_millis(500)),
-        )?
-        .map(|a| {
+        crate::test::with_timeout(5_000, process(receiver).try_join(the_test(sender))).map(|a| {
             assert_eq!(a, ((), ()));
-        })
+            Ok(())
+        })?
     }
 }
