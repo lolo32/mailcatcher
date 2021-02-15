@@ -429,7 +429,7 @@ mod tests {
     use async_std::channel::Receiver;
 
     async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
-        let stream: TcpStream = TcpStream::connect(format!("localhost:{}", port)).await?;
+        let stream: TcpStream = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
 
         let reader: BufReader<TcpStream> = BufReader::new(stream.clone());
         let lines: Lines<BufReader<TcpStream>> = reader.lines();
@@ -504,7 +504,7 @@ mod tests {
 
         crate::test::log_init();
 
-        let listener = task::block_on(TcpListener::bind("localhost:0"))?;
+        let listener = task::block_on(TcpListener::bind("127.0.0.1:0"))?;
         let port: u16 = listener.local_addr()?.port();
 
         let (sender, _receiver): crate::Channel<Mail> = bounded(1);
@@ -619,7 +619,7 @@ This is the content of this mail... but it says nothing now.\r\n"
 
         crate::test::log_init();
 
-        let listener: TcpListener = task::block_on(TcpListener::bind("localhost:0"))?;
+        let listener: TcpListener = task::block_on(TcpListener::bind("127.0.0.1:0"))?;
         let port: u16 = listener.local_addr()?.port();
 
         let (sender, receiver): crate::Channel<Mail> = bounded(1);
