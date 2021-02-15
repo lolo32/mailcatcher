@@ -151,8 +151,9 @@ mod tests {
         prelude::{json, Deserialize, Serialize},
         StatusCode,
     };
+    use ulid::Ulid;
 
-    use crate::mail::{broker::MailTank, HeaderRepresentation};
+    use crate::mail::HeaderRepresentation;
 
     use super::*;
 
@@ -187,9 +188,7 @@ mod tests {
         // Provide some mails
         let mut mails: Vec<Mail> = Vec::new();
         for _ in 0..10 {
-            let mail: Mail = Mail::fake();
-            mails.push(mail.clone());
-            tx_mail_broker.send(MailEvt::NewMail(mail)).await?;
+            mails.push(Mail::fake());
         }
 
         // Init the HTTP side
@@ -224,7 +223,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::panic)]
-    fn test_assets_routes() -> crate::Result<()> {
+    fn assets_routes() -> crate::Result<()> {
         async fn the_test() -> crate::Result<()> {
             let Init { app, .. } = init().await?;
 
@@ -234,6 +233,7 @@ mod tests {
                 ("w3.css", mime::CSS),
                 ("hyperapp.js", mime::JAVASCRIPT),
             ] {
+                // Build request
                 let mut url = Url::parse("http://localhost/")?;
                 if filename != "home.html" {
                     url.set_path(filename);
@@ -266,12 +266,15 @@ mod tests {
 
     #[test]
     #[allow(clippy::panic)]
-    fn test_deflate_routes() -> crate::Result<()> {
+    fn inflate_route() -> crate::Result<()> {
         async fn the_test() -> crate::Result<()> {
             let Init { app, .. } = init().await?;
 
+            // Build request
             let mut request: Request = Request::new(Method::Get, Url::parse("http://localhost/")?);
             let _ = request.insert_header(headers::ACCEPT_ENCODING, "gzip, deflate");
+
+            // Send request and retrieve response
             let mut response: Response = app.respond(request).await?;
             assert_eq!(
                 response
@@ -310,15 +313,19 @@ mod tests {
     #[allow(clippy::panic)]
     fn all_mails_route() -> std::io::Result<()> {
         async fn the_test(app: Server<State<SseEvt>>, mails: Vec<Mail>) -> crate::Result<()> {
-            // Get all mails
+            // Build request
             let request: Request = Request::new(Method::Get, Url::parse("http://localhost/mails")?);
+            // Send request and retrieve response
             let mut response: Response = app.respond(request).await?;
+
             assert_eq!(
                 response
                     .header(headers::CONTENT_TYPE)
                     .ok_or("Content-Type header unavailable")?,
                 &mime::JSON.to_string()
             );
+
+            // Convert all mails to result format
             let mut mails: Vec<MailSummary> = mails
                 .iter()
                 .map(|mail| {
@@ -326,11 +333,18 @@ mod tests {
                         .map_err(|e| format!("{:?}", e))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            // Sort, because the order is not guaranteed
             mails.sort_by(|a, b| a.id.cmp(&b.id));
+
+            // Convert the result from JSON to Rust data
             let txt: String = response.body_string().await?;
             let mut txt: Vec<MailSummary> = serde_json::from_str(&txt)?;
+            // Sort, because the order is not guaranteed
             txt.sort_by(|a, b| a.id.cmp(&b.id));
+
             assert_eq!(mails, txt);
+
+            assert!(false);
 
             Ok(())
         }
@@ -338,18 +352,91 @@ mod tests {
         let Init {
             app,
             mails,
-            rx_mail_broker,
+            mut rx_mail_broker,
             ..
         } = task::block_on(init()).expect("Init");
 
-        let mail_broker = MailTank::new(rx_mail_broker);
+        let mails_broker = mails.clone();
 
-        crate::test::with_timeout(5_000, mail_broker.process().race(the_test(app, mails)))
+        crate::test::with_timeout(
+            5_000,
+            async move {
+                // Mocker for the MailTank
+                let msg = rx_mail_broker.next().await.ok_or("no mail_evt received")?;
+                log::debug!("all_mails: {:?}", msg);
+                match msg {
+                    MailEvt::GetAll(sender) => {
+                        for mail in mails_broker {
+                            sender.send(mail).await?;
+                        }
+                        drop(sender);
+                    }
+                    _ => unreachable!("MailEvt is not GetAll"),
+                }
+                Ok(())
+            }
+            .race(the_test(app, mails)),
+        )
     }
 
     #[test]
     #[allow(clippy::panic)]
-    fn one_mail_route() -> std::io::Result<()> {
+    fn one_nonexistent_mail_route() -> std::io::Result<()> {
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct MailAll {
+            headers: Vec<String>,
+            raw: Vec<String>,
+            data: String,
+        }
+
+        async fn the_test(app: Server<State<SseEvt>>) -> crate::Result<()> {
+            // -------------------
+            // Non existent mail id
+
+            // Build request
+            let request: Request = Request::new(
+                Method::Get,
+                Url::parse(&format!(
+                    "http://localhost/mail/{}",
+                    Ulid::new().to_string()
+                ))?,
+            );
+
+            // Send request and retrieve response
+            let response: Response = app.respond(request).await?;
+            assert_eq!(response.status(), StatusCode::NotFound);
+
+            assert!(false);
+
+            Ok(())
+        }
+
+        let Init {
+            app,
+            mut rx_mail_broker,
+            ..
+        } = task::block_on(init()).expect("Init");
+
+        crate::test::with_timeout(
+            10_000,
+            async move {
+                // Mocker for the MailTank
+                match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
+                    MailEvt::GetMail(sender, _id) => {
+                        sender.send(None).await?;
+                        drop(sender);
+                    }
+                    _ => unreachable!("MailEvt is not GetMail"),
+                }
+                Ok(())
+            }
+            .race(the_test(app)),
+        )
+    }
+
+    #[test]
+    #[allow(clippy::panic)]
+    fn one_existent_mail_route() -> std::io::Result<()> {
         #[derive(Debug, Serialize, Deserialize, PartialEq)]
         struct MailAll {
             headers: Vec<String>,
@@ -358,17 +445,12 @@ mod tests {
         }
 
         async fn the_test(app: Server<State<SseEvt>>, mails: Vec<Mail>) -> crate::Result<()> {
-            // Get one mail
             #[allow(clippy::indexing_slicing)]
             let mail: &Mail = &mails[0];
 
-            // Non existent mail id
-            let request: Request =
-                Request::new(Method::Get, Url::parse("http://localhost/mail/1")?);
-            let response: Response = app.respond(request).await?;
-            assert_eq!(response.status(), StatusCode::NotFound);
-
             // Valid mail id
+
+            // Build request
             let request: Request = Request::new(
                 Method::Get,
                 Url::parse(&format!(
@@ -391,19 +473,38 @@ mod tests {
             let txt: MailAll = serde_json::from_str(&response.body_string().await?)?;
             assert_eq!(mail, txt);
 
+            assert!(false);
+
             Ok(())
         }
 
         let Init {
             app,
             mails,
-            rx_mail_broker,
+            mut rx_mail_broker,
             ..
         } = task::block_on(init()).expect("Init");
 
-        let mail_broker = MailTank::new(rx_mail_broker);
-
-        crate::test::with_timeout(5_000, mail_broker.process().race(the_test(app, mails)))
+        let mails_broker = mails.clone();
+        crate::test::with_timeout(
+            10_000,
+            async move {
+                // Mocker for the MailTank
+                match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
+                    MailEvt::GetMail(sender, id) => {
+                        for mail in &mails_broker {
+                            if mail.get_id() == id {
+                                sender.send(Some(mail.clone())).await?;
+                            }
+                        }
+                        drop(sender);
+                    }
+                    _ => unreachable!("MailEvt is not GetMail"),
+                }
+                Ok(())
+            }
+            .race(the_test(app, mails)),
+        )
     }
 
     #[cfg(feature = "faking")]
@@ -418,26 +519,32 @@ mod tests {
             } = init().await?;
 
             // Without number of mail
+
+            // Build request
             let request: Request = Request::new(Method::Get, Url::parse("http://localhost/fake")?);
+
+            // Send request and retrieve response
             let mut response: Response = app.respond(request).await?;
 
             let body = response.body_string().await?;
             assert_eq!(body, "OK: 1");
 
             assert_eq!(rx_mail_from_faking.len(), 1);
-            let fake_mail_1 = rx_mail_from_faking.next().await.ok_or("no mail")?;
+            let fake_mail_1 = rx_mail_from_faking.next().await.ok_or("no fake mail")?;
             assert!(fake_mail_1
                 .get_text()
                 .ok_or("no data text")?
                 .starts_with("Lorem ipsum dolor sit "));
 
             // With 1 mail
+
+            // Build request
             let request: Request =
                 Request::new(Method::Get, Url::parse("http://localhost/fake/1")?);
             let mut response: Response = app.respond(request).await?;
 
             assert_eq!(rx_mail_from_faking.len(), 1);
-            let fake_mail_2 = rx_mail_from_faking.next().await.ok_or("no mail")?;
+            let fake_mail_2 = rx_mail_from_faking.next().await.ok_or("no fake mail")?;
             assert!(fake_mail_2
                 .get_text()
                 .ok_or("no data text")?
@@ -454,7 +561,7 @@ mod tests {
             assert_eq!(rx_mail_from_faking.len(), 11);
             let mut mails = Vec::new();
             for _ in 0..11 {
-                mails.push(rx_mail_from_faking.next().await.ok_or("no mail")?);
+                mails.push(rx_mail_from_faking.next().await.ok_or("no fake mail")?);
             }
             assert_eq!(mails.len(), 11);
 
