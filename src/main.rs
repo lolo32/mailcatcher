@@ -280,10 +280,10 @@ mod test {
                 .to_string()
                 .replace("\r", "\\r")
                 .replace("\n", "\\n");
-            if msg.len() > 128 {
-                msg.truncate(127);
-                msg.push('\u{2026}');
-            }
+            // if msg.len() > 128 {
+            //     msg.truncate(127);
+            //     msg.push('\u{2026}');
+            // }
             color(record, msg)
         }
 
