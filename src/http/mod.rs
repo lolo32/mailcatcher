@@ -344,8 +344,6 @@ mod tests {
 
             assert_eq!(mails, txt);
 
-            assert!(false);
-
             Ok(())
         }
 
@@ -361,19 +359,20 @@ mod tests {
         crate::test::with_timeout(
             5_000,
             async move {
-                // Mocker for the MailTank
-                let msg = rx_mail_broker.next().await.ok_or("no mail_evt received")?;
-                log::debug!("all_mails: {:?}", msg);
-                match msg {
-                    MailEvt::GetAll(sender) => {
-                        for mail in mails_broker {
-                            sender.send(mail).await?;
+                loop {
+                    // Mocker for the MailTank
+                    let msg = rx_mail_broker.next().await.ok_or("no mail_evt received")?;
+                    log::debug!("all_mails: {:?}", msg);
+                    match msg {
+                        MailEvt::GetAll(sender) => {
+                            for mail in &mails_broker {
+                                sender.send(mail.clone()).await?;
+                            }
+                            drop(sender);
                         }
-                        drop(sender);
+                        _ => unreachable!("MailEvt is not GetAll"),
                     }
-                    _ => unreachable!("MailEvt is not GetAll"),
                 }
-                Ok(())
             }
             .race(the_test(app, mails)),
         )
@@ -406,8 +405,6 @@ mod tests {
             let response: Response = app.respond(request).await?;
             assert_eq!(response.status(), StatusCode::NotFound);
 
-            assert!(false);
-
             Ok(())
         }
 
@@ -420,15 +417,16 @@ mod tests {
         crate::test::with_timeout(
             10_000,
             async move {
-                // Mocker for the MailTank
-                match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
-                    MailEvt::GetMail(sender, _id) => {
-                        sender.send(None).await?;
-                        drop(sender);
+                loop {
+                    // Mocker for the MailTank
+                    match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
+                        MailEvt::GetMail(sender, _id) => {
+                            sender.send(None).await?;
+                            drop(sender);
+                        }
+                        _ => unreachable!("MailEvt is not GetMail"),
                     }
-                    _ => unreachable!("MailEvt is not GetMail"),
                 }
-                Ok(())
             }
             .race(the_test(app)),
         )
@@ -473,8 +471,6 @@ mod tests {
             let txt: MailAll = serde_json::from_str(&response.body_string().await?)?;
             assert_eq!(mail, txt);
 
-            assert!(false);
-
             Ok(())
         }
 
@@ -489,19 +485,20 @@ mod tests {
         crate::test::with_timeout(
             10_000,
             async move {
-                // Mocker for the MailTank
-                match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
-                    MailEvt::GetMail(sender, id) => {
-                        for mail in &mails_broker {
-                            if mail.get_id() == id {
-                                sender.send(Some(mail.clone())).await?;
+                loop {
+                    // Mocker for the MailTank
+                    match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
+                        MailEvt::GetMail(sender, id) => {
+                            for mail in &mails_broker {
+                                if mail.get_id() == id {
+                                    sender.send(Some(mail.clone())).await?;
+                                }
                             }
+                            drop(sender);
                         }
-                        drop(sender);
+                        _ => unreachable!("MailEvt is not GetMail"),
                     }
-                    _ => unreachable!("MailEvt is not GetMail"),
                 }
-                Ok(())
             }
             .race(the_test(app, mails)),
         )
