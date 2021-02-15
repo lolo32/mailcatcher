@@ -415,9 +415,12 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
 #[cfg(test)]
 mod tests {
-    use std::net::TcpListener;
 
-    use async_std::{channel::bounded, net::TcpStream, prelude::FutureExt};
+    use async_std::{
+        channel::bounded,
+        net::{TcpListener, TcpStream},
+        prelude::FutureExt,
+    };
     use futures::io::Lines;
 
     use crate::mail::Type;
@@ -501,18 +504,14 @@ mod tests {
 
         crate::test::log_init();
 
-        let port = {
-            let tcp: TcpListener = TcpListener::bind("localhost:0")?;
-            let port: u16 = tcp.local_addr()?.port();
-            drop(tcp);
-            port
-        };
+        let listener = task::block_on(TcpListener::bind("localhost:0"))?;
+        let port: u16 = listener.local_addr()?.port();
 
         let (sender, _receiver): crate::Channel<Mail> = bounded(1);
 
         crate::test::with_timeout(
             5_000,
-            serve(port, MY_NAME, sender, false).race(the_test(port, MY_NAME)),
+            accept_loop(listener, MY_NAME, sender, false).race(the_test(port, MY_NAME)),
         )
     }
 
@@ -620,18 +619,14 @@ This is the content of this mail... but it says nothing now.\r\n"
 
         crate::test::log_init();
 
-        let port = {
-            let tcp: TcpListener = TcpListener::bind("localhost:0")?;
-            let port: u16 = tcp.local_addr()?.port();
-            drop(tcp);
-            port
-        };
+        let listener: TcpListener = task::block_on(TcpListener::bind("localhost:0"))?;
+        let port: u16 = listener.local_addr()?.port();
 
         let (sender, receiver): crate::Channel<Mail> = bounded(1);
 
         crate::test::with_timeout(
             5_000,
-            serve(port, MY_NAME, sender, false).race(the_test(port, MY_NAME, receiver)),
+            accept_loop(listener, MY_NAME, sender, false).race(the_test(port, MY_NAME, receiver)),
         )
     }
 }
