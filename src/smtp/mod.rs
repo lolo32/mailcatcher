@@ -417,17 +417,15 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 mod tests {
 
     use async_std::{
-        channel::bounded,
-        net::{TcpListener, TcpStream},
+        channel::{bounded, Receiver},
+        net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
         prelude::FutureExt,
     };
-    use futures::io::Lines;
+    use futures::{io::Lines, TryFutureExt};
 
     use crate::mail::Type;
 
     use super::*;
-    use async_std::channel::Receiver;
-    use futures::TryFutureExt;
 
     async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
         let stream: TcpStream = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
