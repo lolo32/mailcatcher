@@ -503,9 +503,10 @@ mod tests {
 
         crate::test::log_init();
 
-        let listener = crate::test::with_timeout(
+        let listener: TcpListener = crate::test::with_timeout(
             1_000,
-            TcpListener::bind("127.0.0.1:0").map_err(|e| e.into()),
+            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 37727))
+                .map_err(|e| e.into()),
         )?;
         let port: u16 = listener.local_addr()?.port();
 
@@ -623,7 +624,8 @@ This is the content of this mail... but it says nothing now.\r\n"
 
         let listener: TcpListener = crate::test::with_timeout(
             1_000,
-            TcpListener::bind("127.0.0.1:0").map_err(|e| e.into()),
+            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 37728))
+                .map_err(|e| e.into()),
         )?;
         let port: u16 = listener.local_addr()?.port();
 
