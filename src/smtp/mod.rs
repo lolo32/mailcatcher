@@ -427,6 +427,7 @@ mod tests {
 
     use super::*;
     use async_std::channel::Receiver;
+    use futures::TryFutureExt;
 
     async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
         let stream: TcpStream = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
@@ -504,7 +505,10 @@ mod tests {
 
         crate::test::log_init();
 
-        let listener = task::block_on(TcpListener::bind("127.0.0.1:0"))?;
+        let listener = crate::test::with_timeout(
+            1_000,
+            TcpListener::bind("127.0.0.1:0").map_err(|e| e.into()),
+        )?;
         let port: u16 = listener.local_addr()?.port();
 
         let (sender, _receiver): crate::Channel<Mail> = bounded(1);
@@ -619,7 +623,10 @@ This is the content of this mail... but it says nothing now.\r\n"
 
         crate::test::log_init();
 
-        let listener: TcpListener = task::block_on(TcpListener::bind("127.0.0.1:0"))?;
+        let listener: TcpListener = crate::test::with_timeout(
+            1_000,
+            TcpListener::bind("127.0.0.1:0").map_err(|e| e.into()),
+        )?;
         let port: u16 = listener.local_addr()?.port();
 
         let (sender, receiver): crate::Channel<Mail> = bounded(1);
