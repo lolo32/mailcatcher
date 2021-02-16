@@ -419,7 +419,7 @@ mod tests {
     use async_std::{
         channel::{bounded, Receiver},
         net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
-        prelude::FutureExt,
+        prelude::{FutureExt, Stream},
     };
     use futures::{io::Lines, TryFutureExt};
 
@@ -453,17 +453,20 @@ mod tests {
 
             // Greeting
             log::trace!("waiting greeting");
+            log::debug!("{:?}", lines.size_hint());
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, format!("220 {} ESMTP", my_name));
 
             // --------------------------
             // Nothing is accepted but Helo, Ehlo, Reset or Noop
             log::trace!("INVALID");
+            log::debug!("{:?}", lines.size_hint());
             stream.write_all(b"INVALID\n").await?;
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, "502 Command not implemented".to_owned());
 
             log::trace!("MAIL FROM first");
+            log::debug!("{:?}", lines.size_hint());
             stream
                 .write_all(b"MAIL FROM:<test@example.org>\r\n")
                 .await?;
