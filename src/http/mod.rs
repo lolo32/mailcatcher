@@ -224,7 +224,7 @@ mod tests {
     #[test]
     #[allow(clippy::panic)]
     fn assets_routes() -> crate::Result<()> {
-        async fn the_test() -> crate::Result<()> {
+        task::block_on(async {
             let Init { app, .. } = init().await?;
 
             // Assets
@@ -259,15 +259,13 @@ mod tests {
             }
 
             Ok(())
-        }
-
-        task::block_on(the_test())
+        })
     }
 
     #[test]
     #[allow(clippy::panic)]
     fn inflate_route() -> crate::Result<()> {
-        async fn the_test() -> crate::Result<()> {
+        task::block_on(async {
             let Init { app, .. } = init().await?;
 
             // Build request
@@ -304,49 +302,12 @@ mod tests {
             assert_eq!(res_content, home_content);
 
             Ok(())
-        }
-
-        task::block_on(the_test())
+        })
     }
 
     #[test]
     #[allow(clippy::panic)]
     fn all_mails_route() -> std::io::Result<()> {
-        async fn the_test(app: Server<State<SseEvt>>, mails: Vec<Mail>) -> crate::Result<()> {
-            // Build request
-            let request: Request = Request::new(Method::Get, Url::parse("http://localhost/mails")?);
-            // Send request and retrieve response
-            let mut response: Response = app.respond(request).await?;
-
-            assert_eq!(
-                response
-                    .header(headers::CONTENT_TYPE)
-                    .ok_or("Content-Type header unavailable")?,
-                &mime::JSON.to_string()
-            );
-
-            // Convert all mails to result format
-            let mut mails: Vec<MailSummary> = mails
-                .iter()
-                .map(|mail| {
-                    serde_json::from_value::<MailSummary>(mail.summary())
-                        .map_err(|e| format!("{:?}", e))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            // Sort, because the order is not guaranteed
-            mails.sort_by(|a, b| a.id.cmp(&b.id));
-
-            // Convert the result from JSON to Rust data
-            let txt: String = response.body_string().await?;
-            let mut txt: Vec<MailSummary> = serde_json::from_str(&txt)?;
-            // Sort, because the order is not guaranteed
-            txt.sort_by(|a, b| a.id.cmp(&b.id));
-
-            assert_eq!(mails, txt);
-
-            Ok(())
-        }
-
         let Init {
             app,
             mails,
@@ -359,8 +320,8 @@ mod tests {
         crate::test::with_timeout(
             5_000,
             async move {
+                // Mocker for the MailTank
                 loop {
-                    // Mocker for the MailTank
                     let msg = rx_mail_broker.next().await.ok_or("no mail_evt received")?;
                     log::debug!("all_mails: {:?}", msg);
                     match msg {
@@ -374,7 +335,41 @@ mod tests {
                     }
                 }
             }
-            .race(the_test(app, mails)),
+            .race(async move {
+                // Build request
+                let request: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/mails")?);
+                // Send request and retrieve response
+                let mut response: Response = app.respond(request).await?;
+
+                assert_eq!(
+                    response
+                        .header(headers::CONTENT_TYPE)
+                        .ok_or("Content-Type header unavailable")?,
+                    &mime::JSON.to_string()
+                );
+
+                // Convert all mails to result format
+                let mut mails: Vec<MailSummary> = mails
+                    .iter()
+                    .map(|mail| {
+                        serde_json::from_value::<MailSummary>(mail.summary())
+                            .map_err(|e| format!("{:?}", e))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                // Sort, because the order is not guaranteed
+                mails.sort_by(|a, b| a.id.cmp(&b.id));
+
+                // Convert the result from JSON to Rust data
+                let txt: String = response.body_string().await?;
+                let mut txt: Vec<MailSummary> = serde_json::from_str(&txt)?;
+                // Sort, because the order is not guaranteed
+                txt.sort_by(|a, b| a.id.cmp(&b.id));
+
+                assert_eq!(mails, txt);
+
+                Ok(())
+            }),
         )
     }
 
@@ -388,26 +383,6 @@ mod tests {
             data: String,
         }
 
-        async fn the_test(app: Server<State<SseEvt>>) -> crate::Result<()> {
-            // -------------------
-            // Non existent mail id
-
-            // Build request
-            let request: Request = Request::new(
-                Method::Get,
-                Url::parse(&format!(
-                    "http://localhost/mail/{}",
-                    Ulid::new().to_string()
-                ))?,
-            );
-
-            // Send request and retrieve response
-            let response: Response = app.respond(request).await?;
-            assert_eq!(response.status(), StatusCode::NotFound);
-
-            Ok(())
-        }
-
         let Init {
             app,
             mut rx_mail_broker,
@@ -417,8 +392,8 @@ mod tests {
         crate::test::with_timeout(
             10_000,
             async move {
+                // Mocker for the MailTank
                 loop {
-                    // Mocker for the MailTank
                     match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
                         MailEvt::GetMail(sender, _id) => {
                             sender.send(None).await?;
@@ -428,7 +403,25 @@ mod tests {
                     }
                 }
             }
-            .race(the_test(app)),
+            .race(async move {
+                // -------------------
+                // Non existent mail id
+
+                // Build request
+                let request: Request = Request::new(
+                    Method::Get,
+                    Url::parse(&format!(
+                        "http://localhost/mail/{}",
+                        Ulid::new().to_string()
+                    ))?,
+                );
+
+                // Send request and retrieve response
+                let response: Response = app.respond(request).await?;
+                assert_eq!(response.status(), StatusCode::NotFound);
+
+                Ok(())
+            }),
         )
     }
 
@@ -442,38 +435,6 @@ mod tests {
             data: String,
         }
 
-        async fn the_test(app: Server<State<SseEvt>>, mails: Vec<Mail>) -> crate::Result<()> {
-            #[allow(clippy::indexing_slicing)]
-            let mail: &Mail = &mails[0];
-
-            // Valid mail id
-
-            // Build request
-            let request: Request = Request::new(
-                Method::Get,
-                Url::parse(&format!(
-                    "http://localhost/mail/{}",
-                    mail.get_id().to_string()
-                ))?,
-            );
-            let mut response: Response = app.respond(request).await?;
-            assert_eq!(
-                response
-                    .header(headers::CONTENT_TYPE)
-                    .ok_or("Content-Type header unavailable")?,
-                &mime::JSON.to_string()
-            );
-            let mail: MailAll = serde_json::from_value(json!({
-                "headers": mail.get_headers(&HeaderRepresentation::Humanized),
-                "raw": mail.get_headers(&HeaderRepresentation::Raw),
-                "data": mail.get_text().ok_or("data mail empty")?.clone(),
-            }))?;
-            let txt: MailAll = serde_json::from_str(&response.body_string().await?)?;
-            assert_eq!(mail, txt);
-
-            Ok(())
-        }
-
         let Init {
             app,
             mails,
@@ -485,8 +446,8 @@ mod tests {
         crate::test::with_timeout(
             10_000,
             async move {
+                // Mocker for the MailTank
                 loop {
-                    // Mocker for the MailTank
                     match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
                         MailEvt::GetMail(sender, id) => {
                             for mail in &mails_broker {
@@ -500,7 +461,37 @@ mod tests {
                     }
                 }
             }
-            .race(the_test(app, mails)),
+            .race(async move {
+                #[allow(clippy::indexing_slicing)]
+                let mail: &Mail = &mails[0];
+
+                // Valid mail id
+
+                // Build request
+                let request: Request = Request::new(
+                    Method::Get,
+                    Url::parse(&format!(
+                        "http://localhost/mail/{}",
+                        mail.get_id().to_string()
+                    ))?,
+                );
+                let mut response: Response = app.respond(request).await?;
+                assert_eq!(
+                    response
+                        .header(headers::CONTENT_TYPE)
+                        .ok_or("Content-Type header unavailable")?,
+                    &mime::JSON.to_string()
+                );
+                let mail: MailAll = serde_json::from_value(json!({
+                    "headers": mail.get_headers(&HeaderRepresentation::Humanized),
+                    "raw": mail.get_headers(&HeaderRepresentation::Raw),
+                    "data": mail.get_text().ok_or("data mail empty")?.clone(),
+                }))?;
+                let txt: MailAll = serde_json::from_str(&response.body_string().await?)?;
+                assert_eq!(mail, txt);
+
+                Ok(())
+            }),
         )
     }
 
@@ -508,7 +499,7 @@ mod tests {
     #[test]
     #[allow(clippy::panic)]
     fn test_faking_routes() -> std::io::Result<()> {
-        async fn the_test() -> crate::Result<()> {
+        crate::test::with_timeout(5_000, async {
             let Init {
                 app,
                 mut rx_mail_from_faking,
@@ -569,8 +560,6 @@ mod tests {
             assert!(rx_mail_from_faking.is_empty());
 
             Ok(())
-        }
-
-        crate::test::with_timeout(5_000, the_test())
+        })
     }
 }
