@@ -4,18 +4,14 @@ use async_std::{
     channel::Sender,
     io::BufReader,
     net::{Incoming, SocketAddr, TcpListener, ToSocketAddrs},
-    task,
+    stream, task,
 };
 use futures::{
     stream::FuturesUnordered,
     AsyncRead, AsyncWrite, {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
 
-use crate::{
-    mail::Mail,
-    smtp::command::Command,
-    utils::{spawn_task_and_swallow_log_errors, ConnectionInfo},
-};
+use crate::{mail::Mail, smtp::command::Command, utils::ConnectionInfo};
 
 /// SMTP command enum
 mod command;
@@ -86,31 +82,39 @@ async fn accept_loop(
     use_starttls: bool,
 ) -> crate::Result<()> {
     // Listen to incoming connection
-    let mut incoming: Incoming = listener.incoming();
+    let incoming: Incoming = listener.incoming();
     log::info!("SMTP listening on {:?}", listener.local_addr()?);
 
+    // Stream to repeat mails sender stream
+    let mails_sender = stream::repeat(mails_broker);
+
     // For each new connection
-    loop {
-        if let Some(stream) = incoming.next().await {
+    incoming
+        .zip(mails_sender)
+        .for_each_concurrent(None, |(stream, mails_broker)| async move {
             // Retrieve the Stream
-            let stream = stream?;
+            let stream = stream.expect("tcp stream");
             // New connection for information
             let conn: ConnectionInfo =
                 ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
-            log::info!("Accepting new connection from: {}", stream.peer_addr()?);
+            log::info!(
+                "Accepting new connection from: {}",
+                stream.peer_addr().expect("peer address")
+            );
             // Spawn local processing
-            let _smtp_processing_task = spawn_task_and_swallow_log_errors(
-                format!("Task: TCP transmission {}", conn),
-                connection_loop(
-                    stream,
-                    conn,
-                    server_name.to_owned(),
-                    use_starttls,
-                    mails_broker.clone(),
-                ),
-            )?;
-        }
-    }
+            connection_loop(
+                stream,
+                conn,
+                server_name.to_owned(),
+                use_starttls,
+                mails_broker,
+            )
+            .await
+            .expect("connection processed");
+        })
+        .await;
+
+    Ok(())
 }
 
 /// Deals with each new connection
@@ -196,6 +200,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
     /// Write response data to the client
     async fn write(&mut self, message: &[u8]) -> crate::Result<()> {
+        log::debug!("Sending message: {:?}", message);
         self.write_stream.write_all(message).await?;
         Ok(())
     }
@@ -438,22 +443,17 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
-    fn smtp_commands() -> std::io::Result<()> {
+    fn invalid_smtp_commands() -> std::io::Result<()> {
         const MY_NAME: &str = "UnitTest";
 
-        async fn the_test(
-            port: u16,
-            my_name: &str,
-            mut receiver: Receiver<Mail>,
-        ) -> crate::Result<()> {
+        async fn the_test(port: u16, my_name: &str) -> crate::Result<()> {
             let (mut lines, mut stream) = connect_to(port).await?;
 
             // Check if greeting is sent by the server
-            log::trace!("First connecting");
+            log::trace!("Invalid SMTP connecting");
 
             // Greeting
             log::trace!("waiting greeting");
-            log::debug!("{:?}", lines.size_hint());
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, format!("220 {} ESMTP", my_name));
 
@@ -505,9 +505,47 @@ mod tests {
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, format!("250 {}", my_name));
 
+            Ok(())
+        }
+
+        crate::test::log_init();
+
+        let listener: TcpListener = crate::test::with_timeout(
+            1_000,
+            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0))
+                .map_err(|e| e.into()),
+        )?;
+        let port: u16 = listener.local_addr()?.port();
+
+        let (sender, _receiver): crate::Channel<Mail> = bounded(1);
+
+        crate::test::with_timeout(
+            5_000,
+            accept_loop(listener, MY_NAME, sender, false).race(the_test(port, MY_NAME)),
+        )
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
+    fn valid_smtp_commands() -> std::io::Result<()> {
+        const MY_NAME: &str = "UnitTest";
+
+        async fn the_test(
+            port: u16,
+            my_name: &str,
+            mut receiver: Receiver<Mail>,
+        ) -> crate::Result<()> {
+            let (mut lines, mut stream) = connect_to(port).await?;
+
             // --------------------------
             // Second try as ehlo
-            log::trace!("Second connection");
+            log::trace!("Valid SMTP connection");
+
+            // Greeting
+            log::trace!("waiting greeting");
+            log::debug!("{:?}", lines.size_hint());
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, format!("220 {} ESMTP", my_name));
 
             log::trace!("EHLO");
             stream.write_all(b"eHLO client\r\n").await?;
