@@ -4,18 +4,14 @@ use async_std::{
     channel::Sender,
     io::BufReader,
     net::{Incoming, SocketAddr, TcpListener, ToSocketAddrs},
-    task,
+    stream, task,
 };
 use futures::{
     stream::FuturesUnordered,
     AsyncRead, AsyncWrite, {future, AsyncBufReadExt, AsyncWriteExt, StreamExt},
 };
 
-use crate::{
-    mail::Mail,
-    smtp::command::Command,
-    utils::{spawn_task_and_swallow_log_errors, ConnectionInfo},
-};
+use crate::{mail::Mail, smtp::command::Command, utils::ConnectionInfo};
 
 /// SMTP command enum
 mod command;
@@ -49,14 +45,7 @@ pub async fn serve(
         // ... bind TCP port for each address ...
         .map(bind)
         // ... spawn a handler to process incoming connection
-        .map(|listener| {
-            accept_loop(
-                listener.expect("tcp listener"),
-                server_name,
-                mails_broker.clone(),
-                use_starttls,
-            )
-        })
+        .map(|listener| accept_loop(listener, server_name, mails_broker.clone(), use_starttls))
         .collect::<FuturesUnordered<_>>()
         .skip_while(|r| future::ready(r.is_ok()))
         .take(1)
@@ -70,13 +59,19 @@ pub async fn serve(
 }
 
 /// Handler that deals to a single socket address
-fn bind(addr: &SocketAddr) -> crate::Result<TcpListener> {
+#[allow(clippy::panic)]
+fn bind(addr: &SocketAddr) -> TcpListener {
     // Bind to the address
-    task::block_on(async move {
+    match task::block_on(async move {
         TcpListener::bind(addr)
             .await
-            .map_err(|e| format!("Unable to bind {:?}: {}", addr, e).into())
-    })
+            .map_err(|e| format!("Unable to bind {:?}: {}", addr, e))
+    }) {
+        Ok(socket) => socket,
+        Err(e) => {
+            panic!("{:?}", e)
+        }
+    }
 }
 
 /// Handler that deals to a single socket address
@@ -87,31 +82,39 @@ async fn accept_loop(
     use_starttls: bool,
 ) -> crate::Result<()> {
     // Listen to incoming connection
-    let mut incoming: Incoming = listener.incoming();
+    let incoming: Incoming = listener.incoming();
     log::info!("SMTP listening on {:?}", listener.local_addr()?);
 
+    // Stream to repeat mails sender stream
+    let mails_sender = stream::repeat(mails_broker);
+
     // For each new connection
-    loop {
-        if let Some(stream) = incoming.next().await {
+    incoming
+        .zip(mails_sender)
+        .for_each_concurrent(None, |(stream, mails_broker)| async move {
             // Retrieve the Stream
-            let stream = stream?;
+            let stream = stream.expect("tcp stream");
             // New connection for information
             let conn: ConnectionInfo =
                 ConnectionInfo::new(stream.local_addr().ok(), stream.peer_addr().ok());
-            log::info!("Accepting new connection from: {}", stream.peer_addr()?);
+            log::info!(
+                "Accepting new connection from: {}",
+                stream.peer_addr().expect("peer address")
+            );
             // Spawn local processing
-            let _smtp_processing_task = spawn_task_and_swallow_log_errors(
-                format!("Task: TCP transmission {}", conn),
-                connection_loop(
-                    stream,
-                    conn,
-                    server_name.to_owned(),
-                    use_starttls,
-                    mails_broker.clone(),
-                ),
-            )?;
-        }
-    }
+            connection_loop(
+                stream,
+                conn,
+                server_name.to_owned(),
+                use_starttls,
+                mails_broker,
+            )
+            .await
+            .expect("connection processed");
+        })
+        .await;
+
+    Ok(())
 }
 
 /// Deals with each new connection
@@ -197,6 +200,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
     /// Write response data to the client
     async fn write(&mut self, message: &[u8]) -> crate::Result<()> {
+        log::debug!("Sending message: {:?}", message);
         self.write_stream.write_all(message).await?;
         Ok(())
     }
@@ -212,7 +216,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
     /// process client input, and return the command used
     #[allow(clippy::indexing_slicing)]
     pub fn process_line(&self, command_line: Cow<'a, str>) -> Command<'a> {
-        // log::debug!("texte: {}", line);
+        log::debug!("texte: {}", command_line);
         if !self.receive_data {
             match command_line.to_lowercase().as_str() {
                 "data" => Command::DataStart,
@@ -303,6 +307,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
     /// Process command and value
     pub async fn process_command(&mut self, command: &Command<'a>) -> crate::Result<Option<Mail>> {
+        log::debug!("{:?}", command);
         #[allow(clippy::pattern_type_mismatch, clippy::unimplemented)]
         match command {
             // Check if command is valid at this time of speaking
@@ -415,22 +420,20 @@ impl<'a, S: AsyncRead + AsyncWrite + Send + Sync + Unpin + Clone> Smtp<'a, S> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
 
     use async_std::{
-        channel::bounded,
-        net::{TcpListener, TcpStream},
-        prelude::FutureExt,
-        task,
+        channel::{bounded, Receiver},
+        net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
+        prelude::{FutureExt, Stream},
     };
-    use futures::io::Lines;
+    use futures::{io::Lines, TryFutureExt};
 
     use crate::mail::Type;
 
     use super::*;
 
     async fn connect_to(port: u16) -> crate::Result<(Lines<BufReader<TcpStream>>, TcpStream)> {
-        let stream: TcpStream = TcpStream::connect(format!("localhost:{}", port)).await?;
+        let stream: TcpStream = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
 
         let reader: BufReader<TcpStream> = BufReader::new(stream.clone());
         let lines: Lines<BufReader<TcpStream>> = reader.lines();
@@ -440,120 +443,147 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
-    fn test_smtp() {
-        async fn async_test() -> crate::Result<()> {
-            const MY_NAME: &str = "UnitTest";
+    fn invalid_smtp_commands() -> std::io::Result<()> {
+        const MY_NAME: &str = "UnitTest";
 
-            let tcp: TcpListener = TcpListener::bind("localhost:0").await?;
-            let port: u16 = tcp.local_addr().expect("socket address").port();
-            drop(tcp);
+        async fn the_test(port: u16, my_name: &str) -> crate::Result<()> {
+            let (mut lines, mut stream) = connect_to(port).await?;
 
-            let (sender, mut receiver): crate::Channel<Mail> = bounded(1);
+            // Check if greeting is sent by the server
+            log::trace!("Invalid SMTP connecting");
 
-            let serve = serve(port, MY_NAME, sender, false);
+            // Greeting
+            log::trace!("waiting greeting");
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, format!("220 {} ESMTP", my_name));
 
-            let fut = async move {
-                let (mut lines, mut stream) = connect_to(port).await?;
+            // --------------------------
+            // Nothing is accepted but Helo, Ehlo, Reset or Noop
+            log::trace!("INVALID");
+            log::debug!("{:?}", lines.size_hint());
+            stream.write_all(b"INVALID\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "502 Command not implemented".to_owned());
 
-                // Check if greeting is sent by the server
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line[..(4 + MY_NAME.len())], format!("220 {}", MY_NAME));
+            log::trace!("MAIL FROM first");
+            log::debug!("{:?}", lines.size_hint());
+            stream
+                .write_all(b"MAIL FROM:<test@example.org>\r\n")
+                .await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
-                // --------------------------
-                // Nothing is accepted but Helo, Ehlo, Reset or Noop
-                stream.write_all(b"INVALID\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "502 Command not implemented".to_owned());
+            log::trace!("RCPT TO first");
+            stream.write_all(b"RCPT TO:<test@example.org>\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
-                stream
-                    .write_all(b"MAIL FROM:<test@example.org>\r\n")
-                    .await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "503 Bad sequence of commands".to_owned());
+            log::trace!("DATA first");
+            stream.write_all(b"DATA\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "503 Bad sequence of commands".to_owned());
 
-                stream.write_all(b"RCPT TO:<test@example.org>\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "503 Bad sequence of commands".to_owned());
+            log::trace!("NOOP");
+            stream.write_all(b"NOOP\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "250 OK".to_owned());
 
-                stream.write_all(b"DATA\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "503 Bad sequence of commands".to_owned());
+            log::trace!("NOOP with message");
+            stream
+                .write_all(b"NOOP ignore the end of the line\r\n")
+                .await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "250 OK".to_owned());
 
-                stream.write_all(b"NOOP\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "250 OK".to_owned());
+            log::trace!("RESET without upcase");
+            stream.write_all(b"rSET\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "250 OK".to_owned());
 
-                stream
-                    .write_all(b"NOOP ignore the end of the line\r\n")
-                    .await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "250 OK".to_owned());
+            log::trace!("HELO");
+            stream.write_all(b"HELO client\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, format!("250 {}", my_name));
 
-                stream.write_all(b"rSET\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "250 OK".to_owned());
+            Ok(())
+        }
 
-                stream.write_all(b"HELO client\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, format!("250 {}", MY_NAME));
+        crate::test::log_init();
 
-                drop(lines);
-                drop(stream);
+        let listener: TcpListener = crate::test::with_timeout(
+            1_000,
+            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0))
+                .map_err(|e| e.into()),
+        )?;
+        let port: u16 = listener.local_addr()?.port();
 
-                // --------------------------
-                // Second try as ehlo
-                let (mut lines, mut stream) = connect_to(port).await?;
+        let (sender, _receiver): crate::Channel<Mail> = bounded(1);
 
-                // Greeting
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, format!("220 {} ESMTP", MY_NAME));
+        crate::test::with_timeout(
+            5_000,
+            accept_loop(listener, MY_NAME, sender, false).race(the_test(port, MY_NAME)),
+        )
+    }
 
-                stream.write_all(b"eHLO client\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, format!("250 {}", MY_NAME));
+    #[test]
+    #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
+    fn valid_smtp_commands() -> std::io::Result<()> {
+        const MY_NAME: &str = "UnitTest";
 
-                // --------------------------
-                // From
-                stream
-                    .write_all(b"mAiL frOM:<from@example.org>\r\n")
-                    .await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "250 OK".to_owned());
+        async fn the_test(
+            port: u16,
+            my_name: &str,
+            mut receiver: Receiver<Mail>,
+        ) -> crate::Result<()> {
+            let (mut lines, mut stream) = connect_to(port).await?;
 
-                // --------------------------
-                // To
-                stream.write_all(b"RCpT tO:<to@example.net>\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "250 OK".to_owned());
+            // --------------------------
+            // Second try as ehlo
+            log::trace!("Valid SMTP connection");
 
-                stream.write_all(b"rcpt TO:<to@example.org>\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "250 OK".to_owned());
+            // Greeting
+            log::trace!("waiting greeting");
+            log::debug!("{:?}", lines.size_hint());
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, format!("220 {} ESMTP", my_name));
 
-                // --------------------------
-                // Begin data
-                stream.write_all(b"DATA\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(&line[..4], "354 ");
+            log::trace!("EHLO");
+            stream.write_all(b"eHLO client\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, format!("250 {}", my_name));
 
-                stream
-                    .write_all(
-                        b"From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;\r\n\
+            // --------------------------
+            // From
+            log::trace!("MAIL FROM");
+            stream
+                .write_all(b"mAiL frOM:<from@example.org>\r\n")
+                .await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "250 OK".to_owned());
+
+            // --------------------------
+            // To
+            log::trace!("RCPT TO 1");
+            stream.write_all(b"RCpT tO:<to@example.net>\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "250 OK".to_owned());
+
+            log::trace!("RCPT TO 2");
+            stream.write_all(b"rcpt TO:<to@example.org>\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "250 OK".to_owned());
+
+            // --------------------------
+            // Begin data
+            log::trace!("DATA");
+            stream.write_all(b"DATA\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(&line[..4], "354 ");
+
+            log::trace!("Mail content");
+            stream
+                .write_all(
+                    b"From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;\r\n\
 To: =?ISO-8859-1?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>;\r\n\
 CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>;\r\n\
 Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
@@ -562,50 +592,57 @@ Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
 .This is the content of this mail... but it says nothing now.\r\n\
 \r\n\
 .\r\n",
-                    )
-                    .await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(line, "250 OK");
+                )
+                .await?;
+            log::trace!("End of mail content");
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(line, "250 OK");
 
-                // --------------------------
-                // Check the received mail
-                let mail: Mail = receiver.next().await.expect("next line");
+            // --------------------------
+            // Check the received mail
+            log::trace!("Mail received");
+            let mail: Mail = receiver.next().await.ok_or("no next line")?;
 
-                // --------------------------
-                // Close connection
-                stream.write_all(b"quit\r\n").await?;
-                let line = lines.next().await.expect("next line");
-                let line: String = line?;
-                assert_eq!(
-                    line[..(4 + MY_NAME.len())].to_string(),
-                    format!("221 {}", MY_NAME)
-                );
+            // --------------------------
+            // Close connection
+            log::trace!("QUIT");
+            stream.write_all(b"quit\r\n").await?;
+            let line = lines.next().await.ok_or("no next line")??;
+            assert_eq!(
+                line[..(4 + my_name.len())].to_string(),
+                format!("221 {}", my_name)
+            );
 
-                let raw = mail.get_data(&Type::Raw).expect("next line");
-                assert_eq!(
-                    raw,
-                    "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;\r\n\
+            log::trace!("Check mail received");
+            let raw = mail.get_data(&Type::Raw).ok_or("no next line")?;
+            assert_eq!(
+                raw,
+                "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>;\r\n\
 To: =?ISO-8859-1?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>;\r\n\
 CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>;\r\n\
 Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\r\n\
  =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=\r\n\
 \r\n\
 This is the content of this mail... but it says nothing now.\r\n"
-                );
+            );
 
-                Ok(())
-            };
-
-            serve.try_race(fut).await
+            Ok(())
         }
 
-        task::block_on(async {
-            async_test()
-                .timeout(Duration::from_millis(5000))
-                .await
-                .expect("no timeout")
-                .expect("promise result")
-        })
+        crate::test::log_init();
+
+        let listener: TcpListener = crate::test::with_timeout(
+            1_000,
+            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0))
+                .map_err(|e| e.into()),
+        )?;
+        let port: u16 = listener.local_addr()?.port();
+
+        let (sender, receiver): crate::Channel<Mail> = bounded(1);
+
+        crate::test::with_timeout(
+            5_000,
+            accept_loop(listener, MY_NAME, sender, false).race(the_test(port, MY_NAME, receiver)),
+        )
     }
 }

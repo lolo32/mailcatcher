@@ -62,6 +62,8 @@ mod tests {
 
     #[test]
     fn convert_to_sse_data() {
+        crate::test::log_init();
+
         let sse_evt: SseEvt = SseEvt::Ping;
         let data: SseData = sse_evt.into();
         assert_eq!(data.name, "ping");
