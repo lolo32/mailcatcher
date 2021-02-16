@@ -275,7 +275,7 @@ mod test {
 
         #[allow(clippy::indexing_slicing)]
         fn format_message(record: &Record<'_>) -> String {
-            let mut msg = record
+            let msg = record
                 .args()
                 .to_string()
                 .replace("\r", "\\r")

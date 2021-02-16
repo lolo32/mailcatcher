@@ -438,16 +438,23 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
-    fn invalid_smtp_commands() -> std::io::Result<()> {
+    fn smtp_commands() -> std::io::Result<()> {
         const MY_NAME: &str = "UnitTest";
 
-        async fn the_test(port: u16, my_name: &str) -> crate::Result<()> {
+        async fn the_test(
+            port: u16,
+            my_name: &str,
+            mut receiver: Receiver<Mail>,
+        ) -> crate::Result<()> {
             let (mut lines, mut stream) = connect_to(port).await?;
 
             // Check if greeting is sent by the server
             log::trace!("First connecting");
+
+            // Greeting
+            log::trace!("waiting greeting");
             let line = lines.next().await.ok_or("no next line")??;
-            assert_eq!(line[..(4 + my_name.len())], format!("220 {}", my_name));
+            assert_eq!(line, format!("220 {} ESMTP", my_name));
 
             // --------------------------
             // Nothing is accepted but Helo, Ehlo, Reset or Noop
@@ -495,48 +502,9 @@ mod tests {
             let line = lines.next().await.ok_or("no next line")??;
             assert_eq!(line, format!("250 {}", my_name));
 
-            drop(lines);
-            drop(stream);
-
-            Ok(())
-        }
-
-        crate::test::log_init();
-
-        let listener: TcpListener = crate::test::with_timeout(
-            1_000,
-            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 37727))
-                .map_err(|e| e.into()),
-        )?;
-        let port: u16 = listener.local_addr()?.port();
-
-        let (sender, _receiver): crate::Channel<Mail> = bounded(1);
-
-        crate::test::with_timeout(
-            5_000,
-            accept_loop(listener, MY_NAME, sender, false).race(the_test(port, MY_NAME)),
-        )
-    }
-
-    #[test]
-    #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
-    fn valid_smtp_commands() -> std::io::Result<()> {
-        const MY_NAME: &str = "UnitTest";
-
-        async fn the_test(
-            port: u16,
-            my_name: &str,
-            mut receiver: Receiver<Mail>,
-        ) -> crate::Result<()> {
             // --------------------------
             // Second try as ehlo
             log::trace!("Second connection");
-            let (mut lines, mut stream) = connect_to(port).await?;
-
-            // Greeting
-            log::trace!("waiting greeting");
-            let line = lines.next().await.ok_or("no next line")??;
-            assert_eq!(line, format!("220 {} ESMTP", my_name));
 
             log::trace!("EHLO");
             stream.write_all(b"eHLO client\r\n").await?;
@@ -624,7 +592,7 @@ This is the content of this mail... but it says nothing now.\r\n"
 
         let listener: TcpListener = crate::test::with_timeout(
             1_000,
-            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 37728))
+            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0))
                 .map_err(|e| e.into()),
         )?;
         let port: u16 = listener.local_addr()?.port();
