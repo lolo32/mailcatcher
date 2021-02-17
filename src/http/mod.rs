@@ -420,6 +420,19 @@ mod tests {
                 let response: Response = app.respond(request).await?;
                 assert_eq!(response.status(), StatusCode::NotFound);
 
+                // -------------------
+                // Invalid mail id
+
+                // Build request
+                let request: Request = Request::new(
+                    Method::Get,
+                    Url::parse("http://localhost/mail/SomeThingWrong")?,
+                );
+
+                // Send request and retrieve response
+                let response: Response = app.respond(request).await?;
+                assert_eq!(response.status(), StatusCode::NotFound);
+
                 Ok(())
             }),
         )
@@ -489,6 +502,157 @@ mod tests {
                 }))?;
                 let txt: MailAll = serde_json::from_str(&response.body_string().await?)?;
                 assert_eq!(mail, txt);
+
+                Ok(())
+            }),
+        )
+    }
+
+    #[test]
+    #[allow(clippy::panic)]
+    fn deleting_one_mail() -> std::io::Result<()> {
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct MailAll {
+            headers: Vec<String>,
+            raw: Vec<String>,
+            data: String,
+        }
+
+        let Init {
+            app,
+            mails,
+            mut rx_mail_broker,
+            ..
+        } = task::block_on(init()).expect("Init");
+
+        let mut mails_broker = mails.clone();
+        crate::test::with_timeout(
+            10_000,
+            async move {
+                // Mocker for the MailTank
+                loop {
+                    match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
+                        MailEvt::Remove(sender, id) => {
+                            let mut found = false;
+                            for (i, mail) in mails_broker.clone().iter().enumerate() {
+                                if mail.get_id() == id {
+                                    let _ = mails_broker.remove(i);
+                                    found = true;
+                                }
+                            }
+                            if found {
+                                sender.send(Some(id))
+                            } else {
+                                sender.send(None)
+                            }
+                            .await?;
+                            drop(sender);
+                        }
+                        _ => unreachable!("MailEvt is not Remove"),
+                    }
+                }
+            }
+            .race(async move {
+                #[allow(clippy::indexing_slicing)]
+                let mail: &Mail = &mails[0];
+
+                // Valid mail id
+
+                // Build request
+                let request: Request = Request::new(
+                    Method::Get,
+                    Url::parse(&format!(
+                        "http://localhost/remove/{}",
+                        mail.get_id().to_string()
+                    ))?,
+                );
+                let mut response: Response = app.respond(request.clone()).await?;
+                assert_eq!(
+                    response
+                        .header(headers::CONTENT_TYPE)
+                        .ok_or("Content-Type header unavailable")?,
+                    &mime::PLAIN.to_string()
+                );
+                assert_eq!(response.body_string().await?, "OK: 1");
+
+                // Same request, with mail already removed
+                let response: Response = app.respond(request).await?;
+                assert_eq!(response.status(), StatusCode::NotFound);
+
+                // Invalid mail id
+
+                // Build request
+                let request: Request = Request::new(
+                    Method::Get,
+                    Url::parse(&format!("http://localhost/remove/{}", Ulid::new()))?,
+                );
+                let response: Response = app.respond(request).await?;
+                assert_eq!(response.status(), StatusCode::NotFound);
+
+                Ok(())
+            }),
+        )
+    }
+
+    #[test]
+    #[allow(clippy::panic)]
+    fn deleting_all_mails() -> std::io::Result<()> {
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct MailAll {
+            headers: Vec<String>,
+            raw: Vec<String>,
+            data: String,
+        }
+
+        let Init {
+            app,
+            mails,
+            mut rx_mail_broker,
+            ..
+        } = task::block_on(init()).expect("Init");
+
+        let mut mails_broker = mails.clone();
+        crate::test::with_timeout(
+            10_000,
+            async move {
+                // Mocker for the MailTank
+                loop {
+                    match rx_mail_broker.next().await.ok_or("no mail_evt received")? {
+                        MailEvt::RemoveAll(sender) => {
+                            let mails: Vec<Ulid> = mails_broker.iter().map(Mail::get_id).collect();
+                            mails_broker.clear();
+                            for mail in mails {
+                                sender.send(mail).await?;
+                            }
+                            drop(sender);
+                        }
+                        _ => unreachable!("MailEvt is not RemoveAll"),
+                    }
+                }
+            }
+            .race(async move {
+                #[allow(clippy::indexing_slicing)]
+                // Build request
+                let request: Request =
+                    Request::new(Method::Get, Url::parse("http://localhost/remove/all")?);
+                let mut response: Response = app.respond(request.clone()).await?;
+                assert_eq!(
+                    response
+                        .header(headers::CONTENT_TYPE)
+                        .ok_or("Content-Type header unavailable")?,
+                    &mime::PLAIN.to_string()
+                );
+                assert_eq!(response.body_string().await?, "OK: 10");
+
+                // Same request, with mails already removed
+                let mut response: Response = app.respond(request).await?;
+                assert_eq!(
+                    response
+                        .header(headers::CONTENT_TYPE)
+                        .ok_or("Content-Type header unavailable")?,
+                    &mime::PLAIN.to_string()
+                );
+                assert_eq!(response.body_string().await?, "OK: 0");
 
                 Ok(())
             }),
