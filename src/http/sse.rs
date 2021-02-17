@@ -12,7 +12,7 @@ pub async fn handle(req: Request<State<SseEvt>>, sender: Sender) -> tide::Result
     let mut sse_stream = req.state().sse_stream.clone();
 
     // Do for each event
-    while let Some(mail_evt) = sse_stream.next().await {
+    'outer: while let Some(mail_evt) = sse_stream.next().await {
         log::info!(
             "received new SSE notification, sending event to stream: {:?}",
             mail_evt
@@ -22,13 +22,16 @@ pub async fn handle(req: Request<State<SseEvt>>, sender: Sender) -> tide::Result
         let data: SseData = mail_evt.into();
         log::trace!("data to send: {:?}", data);
         // Send the generated data
-        let sent = sender.send(data.name, data.data.as_ref(), None).await;
-        // Check the send result, exit of the SSE if any error, generally from a disconnection
-        if sent.is_err() {
-            log::warn!("Err, disconnected: {:?}", sent);
-            break;
+        match sender.send(data.name, data.data.as_ref(), None).await {
+            Ok(..) => {
+                log::trace!("### Server-Sent Events sent");
+            }
+            // Check the send result, exit of the SSE if any error, generally from a disconnection
+            Err(e) => {
+                log::warn!("Err, disconnected: {:?}", e);
+                break 'outer;
+            }
         }
-        log::trace!("### Server-Sent Events sent");
     }
     log::info!("### Exit /sse");
     Ok(())

@@ -138,6 +138,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use std::{env, fs};
 
@@ -170,9 +171,8 @@ mod tests {
     struct Init {
         app: Server<State<SseEvt>>,
         mails: Vec<Mail>,
-        tx_mail_broker: Sender<MailEvt>,
         rx_mail_broker: Receiver<MailEvt>,
-        tx_new_mail: Sender<Mail>,
+        tx_sse_new_mail: Sender<Mail>,
         #[cfg(feature = "faking")]
         rx_mail_from_faking: Receiver<Mail>,
     }
@@ -181,7 +181,7 @@ mod tests {
         crate::test::log_init();
 
         let (tx_mail_broker, rx_mail_broker): crate::Channel<MailEvt> = channel::unbounded();
-        let (tx_new_mail, rx_new_mail): crate::Channel<Mail> = channel::unbounded();
+        let (tx_sse_new_mail, rx_sse_new_mail): crate::Channel<Mail> = channel::unbounded();
         #[cfg(feature = "faking")]
         let (tx_mail_from_faking, rx_mail_from_faking): crate::Channel<Mail> = channel::unbounded();
 
@@ -193,8 +193,8 @@ mod tests {
 
         // Init the HTTP side
         let params: Params = Params {
-            mail_broker: tx_mail_broker.clone(),
-            rx_mails: rx_new_mail,
+            mail_broker: tx_mail_broker,
+            rx_mails: rx_sse_new_mail,
             #[cfg(feature = "faking")]
             tx_new_mail: tx_mail_from_faking,
         };
@@ -202,9 +202,8 @@ mod tests {
         Ok(Init {
             app: super::init(params).await?,
             mails,
-            tx_mail_broker,
             rx_mail_broker,
-            tx_new_mail,
+            tx_sse_new_mail,
             #[cfg(feature = "faking")]
             rx_mail_from_faking,
         })
@@ -631,7 +630,6 @@ mod tests {
                 }
             }
             .race(async move {
-                #[allow(clippy::indexing_slicing)]
                 // Build request
                 let request: Request =
                     Request::new(Method::Get, Url::parse("http://localhost/remove/all")?);
@@ -642,7 +640,10 @@ mod tests {
                         .ok_or("Content-Type header unavailable")?,
                     &mime::PLAIN.to_string()
                 );
-                assert_eq!(response.body_string().await?, "OK: 10");
+                assert_eq!(
+                    response.body_string().await?,
+                    format!("OK: {}", mails.len())
+                );
 
                 // Same request, with mails already removed
                 let mut response: Response = app.respond(request).await?;
